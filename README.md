@@ -7,7 +7,7 @@ Ayrıca yalnız sahibin gördüğü finans bölümü, ekip/müşteri üyelikleri
 
 ## Adres ve hesaplar
 
-- Canlı: https://gamesmedya-partner-hub.pages.dev (Cloudflare Pages adresi; istekleri `partner-hub` Worker'ına iletir)
+- Canlı: https://partner-hub.meliksahtestenv.workers.dev (hesabın workers.dev alt alanı `meliksahtestenv`; pages.dev Türkiye'de engelli olduğu için kullanılmıyor)
 - İlk açılışta iki hesap oluşur: ajans sahibi ve Unilever müşteri hesabı (`hosted/wrangler.toml` → `SEED`; şifreler yalnız hash olarak durur).
   İlk girişten sonra şifreni sol alttaki anahtar simgesinden değiştir.
 - Yeni kişiler: Team & access (ajans) ya da partnership → Members (müşteri) → davet. Davet e-postasındaki kodla hesap açılır.

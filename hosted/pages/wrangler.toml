@@ -1,9 +1,0 @@
-# Neutral public address for Partner Hub: a Cloudflare Pages project that forwards every request
-# (pages, API, files, WebSocket) to the `partner-hub` Worker through a service binding.
-name = "gamesmedya-partner-hub"
-pages_build_output_dir = "./dist"
-compatibility_date = "2026-09-01"
-
-[[services]]
-binding = "HUB"
-service = "partner-hub"
