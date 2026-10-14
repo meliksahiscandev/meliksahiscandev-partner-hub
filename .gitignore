@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+test/out/
+test/out-hosted/
+test/node_modules/
+app.check.js
+partner-hub.html
+hosted/public/index.html
+hosted/public/login.html
+hosted/public/robots.txt
+*.log
+secrets.json
+.dev.vars
+__pycache__/

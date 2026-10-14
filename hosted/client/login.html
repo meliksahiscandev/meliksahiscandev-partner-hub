@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sign in · Partner Hub</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#F3F5F8; --surface:#FFFFFF; --line:#E0E4EA; --line-2:#C9D0DA; --text:#0F1828; --text-2:#465165; --text-3:#778195;
+  --primary:#2450CF; --primary-2:#1C41AE; --on-primary:#FFFFFF; --crit:#BE2A22; --crit-soft:#FBE7E5; --ok:#137A4B; --ok-soft:#E4F3EB;
+  --nav:#0C1320; --nav-line:#1D2737; --nav-text:#97A3B6; --nav-strong:#EEF2F8; --nav-accent:#7FA0F7;
+  --f-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0A0F17; --surface:#111824; --line:#232F40; --line-2:#324056; --text:#E5EAF1; --text-2:#A3AEBF; --text-3:#748198;
+  --primary:#7397F5; --primary-2:#8DAAF7; --on-primary:#0A0F17; --crit:#F2877E; --crit-soft:#35171A; --ok:#5CC48E; --ok-soft:#10291D;
+  --nav:#070B12; --nav-line:#182232; --nav-text:#8995A9; --nav-strong:#EEF2F8; --nav-accent:#8DAAF7; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0A0F17; --surface:#111824; --line:#232F40; --line-2:#324056; --text:#E5EAF1; --text-2:#A3AEBF; --text-3:#748198;
+  --primary:#7397F5; --primary-2:#8DAAF7; --on-primary:#0A0F17; --crit:#F2877E; --crit-soft:#35171A; --ok:#5CC48E; --ok-soft:#10291D;
+  --nav:#070B12; --nav-line:#182232; --nav-text:#8995A9; --nav-strong:#EEF2F8; --nav-accent:#8DAAF7; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--f-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.wrap{min-height:100dvh;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)}
+.brand{background:var(--nav);color:var(--nav-text);display:flex;flex-direction:column;justify-content:space-between;gap:32px;padding-block:40px;padding-left:max(40px,env(safe-area-inset-left,0px));padding-right:40px}
+.mark{display:flex;align-items:center;gap:12px}
+.mark i{width:36px;height:36px;border-radius:8px;background:var(--nav-accent);color:var(--nav);display:grid;place-items:center;font-style:normal;font-weight:700;font-size:14px;letter-spacing:.02em}
+.mark b{display:block;color:var(--nav-strong);font-weight:600;font-size:15px;line-height:1.2}
+.mark span{font-size:12px}
+.pitch h1{color:var(--nav-strong);font-size:28px;line-height:1.2;font-weight:600;letter-spacing:-.015em;margin:0 0 14px;text-wrap:balance;max-width:20ch}
+.pitch p{margin:0;max-width:46ch}
+.stages{display:flex;flex-direction:column;gap:8px;margin-top:26px;padding:0;list-style:none;counter-reset:s}
+.stages li{display:flex;gap:12px;align-items:baseline;font-size:13px}
+.stages li::before{counter-increment:s;content:counter(s,decimal-leading-zero);font-family:var(--f-mono);font-size:11px;color:var(--nav-accent)}
+.foot{font-family:var(--f-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#5D6A80}
+.panel{display:grid;place-items:center;padding-block:40px;padding-left:24px;padding-right:max(24px,env(safe-area-inset-right,0px))}
+.card{width:100%;max-width:400px;display:flex;flex-direction:column;gap:20px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--line);border-radius:8px;padding:3px;gap:3px}
+.tabs button{border:0;background:transparent;border-radius:6px;padding:8px 10px;font-weight:500;color:var(--text-2);cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(15,24,40,.12)}
+h2{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}
+.sub{margin:4px 0 0;color:var(--text-2);font-size:13.5px}
+form{display:flex;flex-direction:column;gap:14px}
+label{display:flex;flex-direction:column;gap:5px;font-size:12.5px;font-weight:500;color:var(--text-2)}
+label small{font-weight:400;color:var(--text-3);font-size:12px}
+input{height:40px;border:1px solid var(--line-2);border-radius:7px;background:var(--surface);padding:0 12px;font-size:14px;color:var(--text);width:100%}
+input:focus{border-color:var(--primary);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 22%,transparent)}
+input.code{font-family:var(--f-mono);letter-spacing:.1em;text-transform:uppercase}
+.btn{height:42px;border:0;border-radius:7px;background:var(--primary);color:var(--on-primary);font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn:hover{background:var(--primary-2)} .btn[disabled]{opacity:.6;cursor:default}
+.msg{border-radius:7px;padding:10px 12px;font-size:13px}
+.msg.err{background:var(--crit-soft);color:var(--crit)} .msg.ok{background:var(--ok-soft);color:var(--ok)}
+.note{font-size:12.5px;color:var(--text-3)}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:r .8s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+[hidden]{display:none!important}
+@media (max-width:860px){
+  .wrap{grid-template-columns:minmax(0,1fr)}
+  .brand{padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .pitch h1{font-size:22px} .stages,.foot{display:none}
+  .panel{place-items:start center;padding-block:28px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="brand">
+    <div class="mark"><i>GM</i><div><b>Games Medya</b><span>Partner Hub</span></div></div>
+    <div class="pitch">
+      <h1>Influencer campaigns, from debrief to results.</h1>
+      <p>One workspace for the agency and its partner brands: agreements, masterfiles, approvals, live content and performance.</p>
+      <ol class="stages"><li>Masterfile alignment</li><li>Content × influencer match</li><li>Content review</li><li>Content submission</li><li>Performance data</li></ol>
+    </div>
+    <div class="foot">Access by invitation only</div>
+  </aside>
+  <main class="panel">
+    <div class="card">
+      <div class="tabs" role="tablist" aria-label="Account">
+        <button role="tab" id="tab-in" aria-selected="true" aria-controls="f-in">Sign in</button>
+        <button role="tab" id="tab-up" aria-selected="false" aria-controls="f-up">Create account</button>
+      </div>
+      <div id="m" class="msg" role="alert" hidden></div>
+      <section id="f-in" role="tabpanel" aria-labelledby="tab-in">
+        <div style="margin-bottom:18px"><h2>Sign in</h2><p class="sub">Use the email address your invitation was sent to.</p></div>
+        <form id="in" novalidate>
+          <label>Email<input id="in-email" type="email" autocomplete="username" required></label>
+          <label>Password<input id="in-pw" type="password" autocomplete="current-password" required></label>
+          <button class="btn" type="submit">Sign in</button>
+          <p class="note">Forgot your password? Ask your Games Medya admin to send you a new invitation.</p>
+        </form>
+      </section>
+      <section id="f-up" role="tabpanel" aria-labelledby="tab-up" hidden>
+        <div style="margin-bottom:18px"><h2>Create your account</h2><p class="sub">Enter the code from your invitation email. It confirms you own the invited address.</p></div>
+        <form id="up" novalidate>
+          <label>Invited email<input id="up-email" type="email" autocomplete="username" required></label>
+          <label>Invitation code<input id="up-code" class="code" autocomplete="one-time-code" placeholder="XXXXX-XXXXX" required></label>
+          <label>Full name<input id="up-name" autocomplete="name" required></label>
+          <label>Password<input id="up-pw" type="password" autocomplete="new-password" minlength="10" required><small>At least 10 characters.</small></label>
+          <button class="btn" type="submit">Create account</button>
+        </form>
+      </section>
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  'use strict';
+  var params = new URLSearchParams(location.search);
+  var next = params.get('next') || '/';
+  if (!/^\/(?!\/)/.test(next) || /^\/login/.test(next)) next = '/';
+  var $ = function (id) { return document.getElementById(id); };
+  var msg = $('m');
+  function show(text, ok) { msg.textContent = text; msg.className = 'msg ' + (ok ? 'ok' : 'err'); msg.hidden = !text; }
+  function tab(which) {
+    var up = which === 'up';
+    $('tab-in').setAttribute('aria-selected', String(!up)); $('tab-up').setAttribute('aria-selected', String(up));
+    $('f-in').hidden = up; $('f-up').hidden = !up; show('');
+    try { (up ? $('up-email') : $('in-email')).focus(); } catch (e) { }
+  }
+  $('tab-in').onclick = function () { tab('in'); };
+  $('tab-up').onclick = function () { tab('up'); };
+  if (params.get('code') || location.hash === '#create') { tab('up'); if (params.get('code')) $('up-code').value = params.get('code'); if (params.get('email')) $('up-email').value = params.get('email'); }
+  else if (params.get('email')) $('in-email').value = params.get('email');
+  async function post(path, body, btn) {
+    var label = btn.textContent; btn.disabled = true; btn.innerHTML = '<span class="spin" aria-hidden="true"></span>' + label;
+    try {
+      var res = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      var j = {}; try { j = await res.json(); } catch (e) { }
+      if (!res.ok) { show((j && j.message) || 'Something went wrong. Try again.'); return false; }
+      return true;
+    } catch (e) { show('Connection problem. Check your connection and try again.'); return false; }
+    finally { btn.disabled = false; btn.textContent = label; }
+  }
+  $('in').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var email = $('in-email').value.trim(), pw = $('in-pw').value;
+    if (!email || !pw) return show('Enter your email and password.');
+    if (await post('/api/login', { email: email, password: pw }, e.submitter || this.querySelector('button'))) location.replace(next);
+  });
+  $('up').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var b = { email: $('up-email').value.trim(), code: $('up-code').value.trim(), name: $('up-name').value.trim(), password: $('up-pw').value };
+    if (!b.email || !b.code || !b.name) return show('Fill in your email, the invitation code and your name.');
+    if (b.password.length < 10) return show('Choose a password of at least 10 characters.');
+    if (await post('/api/register', b, e.submitter || this.querySelector('button'))) location.replace('/');
+  });
+  fetch('/api/me', { credentials: 'same-origin' }).then(function (r) { if (r.ok && !params.get('code')) location.replace(next); }).catch(function () { });
+})();
+</script>
+</body>
+</html>

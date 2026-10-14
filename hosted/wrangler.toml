@@ -1,0 +1,32 @@
+# Partner Hub · Cloudflare Worker + Durable Object (SQLite) + static assets + Browser Rendering
+name = "partner-hub"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+html_handling = "auto-trailing-slash"
+not_found_handling = "none"
+
+[[durable_objects.bindings]]
+name = "WORKSPACE"
+class_name = "Workspace"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Workspace"]
+
+[browser]
+binding = "BROWSER"
+
+[observability]
+enabled = true
+
+[vars]
+# First-run accounts. Only used when the workspace is empty. Passwords are stored as PBKDF2-SHA256 hashes
+# (100k iterations, random salt); change them after the first sign-in (sidebar → key icon).
+SEED = '''{"agencyName": "Games Medya", "customerCompany": "Unilever", "owner": {"email": "meliksahiscan@gmail.com", "name": "Melik\u015fah \u0130\u015fcan", "salt": "2WlQTAAna8nppBuEX7eDDQ==", "hash": "Oek9OvWMF8X743mHRykecMTYxwQpQZLO5W95MzxUglE="}, "customer": {"email": "meliksahiscan+unilever@gmail.com", "name": "Unilever Demo", "salt": "STZ5DN1Mtu1BI08JGfYKlg==", "hash": "E5b3lNOP/+pFRXifzUNOXYBoej6vdudiWyksEYHi+bE="}}'''

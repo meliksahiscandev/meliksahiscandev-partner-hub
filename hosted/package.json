@@ -1,0 +1,16 @@
+{
+  "name": "partner-hub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python3 ../build.py",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/puppeteer": "^1.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

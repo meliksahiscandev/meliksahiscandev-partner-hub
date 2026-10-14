@@ -1,0 +1,115 @@
+# Partner Hub: every change is tested; merging to main deploys to Cloudflare.
+# Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID (required),
+# ANTHROPIC_API_KEY, APIFY_TOKEN, RESEND_API_KEY (optional; features switch on when present).
+name: Deploy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Deploy without running the end-to-end tests"
+        type: boolean
+        default: false
+env:
+  WRANGLER_SEND_METRICS: "false"
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_tests) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          npm ci --prefix hosted
+          npm ci --prefix test
+          pip install playwright pillow reportlab openpyxl
+          python -m playwright install --with-deps chromium
+      - name: Build
+        run: python3 build.py && node --check app.check.js && node --check hosted/src/worker.js && node --check hosted/client/runtime.js
+      - name: Artifact version (mocked runtime)
+        run: python3 test/e2e.py | tee e2e.log; grep -q "RESULT: .* 0 failed" e2e.log
+      - name: Hosted version (local Worker, two accounts)
+        run: |
+          cd hosted
+          npx wrangler dev --config wrangler.test.toml --port 8787 --ip 127.0.0.1 --persist-to .wrangler/ci > ../wrangler.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:8787/api/health > /dev/null && break; sleep 2; done
+          cd .. && python3 test/hosted_e2e.py http://localhost:8787
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: |
+            test/out
+            test/out-hosted
+            wrangler.log
+          retention-days: 14
+  deploy:
+    needs: test
+    if: ${{ always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: npm ci --prefix hosted && APP_VERSION="$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}" python3 build.py
+      - name: Deploy to Cloudflare
+        working-directory: hosted
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: |
+          fail() { echo "::error title=Cloudflare deploy::$1"; exit 1; }
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || fail "CLOUDFLARE_API_TOKEN secret is missing (Settings › Secrets and variables › Actions)."
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || fail "CLOUDFLARE_ACCOUNT_ID secret is missing."
+          echo "$CLOUDFLARE_ACCOUNT_ID" | grep -Eq '^[0-9a-f]{32}$' || fail "CLOUDFLARE_ACCOUNT_ID must be the 32-character account id (dash.cloudflare.com/<id>/home), not an email or name."
+          VERSION="$(date -u +%Y%m%d.%H%M)-${GITHUB_SHA::7}"
+          set +e
+          npx wrangler deploy --var APP_VERSION:"$VERSION" 2>&1 | tee deploy.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" != "0" ]; then
+            msg=$(grep -vE '^\s*$' deploy.log | tail -n 15 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Cloudflare deploy::${msg}"
+            exit "$code"
+          fi
+          node -e '
+            const out = {};
+            for (const k of ["ANTHROPIC_API_KEY", "APIFY_TOKEN", "RESEND_API_KEY"]) if (process.env[k]) out[k] = process.env[k];
+            require("fs").writeFileSync("secrets.json", JSON.stringify(out));
+            console.log("Secrets to set:", Object.keys(out).join(", ") || "none");
+          '
+          if [ "$(cat secrets.json)" != "{}" ]; then npx wrangler secret bulk secrets.json; fi
+          rm -f secrets.json
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 20); do curl -sf "$URL/api/health" > health.json && break; sleep 3; done
+          echo "### Partner Hub deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Address: $URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Health: \`$(cat health.json 2>/dev/null || echo 'no answer')\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Partner Hub::Deployed $VERSION to $URL"

@@ -1,0 +1,24 @@
+# Local end-to-end test config: no browser binding, providers stubbed, test accounts.
+name = "partner-hub-test"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+html_handling = "auto-trailing-slash"
+not_found_handling = "none"
+
+[[durable_objects.bindings]]
+name = "WORKSPACE"
+class_name = "Workspace"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Workspace"]
+
+[vars]
+STUB_PROVIDERS = "1"
+SEED = '''{"agencyName": "Games Medya", "customerCompany": "Unilever", "owner": {"email": "owner@test.local", "name": "Agency Owner", "salt": "836ok76uwRz1tK/9C3XhDA==", "hash": "ZKi5o64K62tOZKnyLQdFeNro9UHIffKq+UPSeEDmwkY="}, "customer": {"email": "buyer@unilever.test", "name": "Unilever Buyer", "salt": "NwwQY3AUqzRd2+/GfynAFg==", "hash": "7rDxjj+goFntBiXk3oG82/q4KsSr7SvSb5ud12EF/e4="}}'''
