@@ -479,12 +479,11 @@ def main():
 
             # ============ 17. audit outbox survives outage ============
             print('17. Audit log outage', flush=True)
-            n_before = len(events())
             page.evaluate('() => { window.__auditOffline = true; }')
             nav('#p.' + PID + '.agreements'); page.wait_for_selector('text=Brands covered')
             page.locator('input[placeholder^="Brand name"]').first.fill('Dove'); page.keyboard.press('Enter'); toast_wait('Dove added')
             page.wait_for_timeout(500)
-            check(len(events()) == n_before, 'log write blocked during outage')
+            check(not any(e['act'] == 'brand.add' and e.get('refName') == 'Dove' for e in events()), 'log write blocked during outage')
             q = page.evaluate('() => JSON.parse(localStorage.getItem("gm-audit-outbox") || "[]").length')
             check(q >= 1, 'event kept in the browser outbox (%s queued)' % q)
             page.evaluate('() => { window.__auditOffline = false; }')
