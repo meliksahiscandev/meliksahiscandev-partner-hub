@@ -132,7 +132,7 @@ function PartnershipOverview({ p }) {
   const docs = filesOf(s, p.id).filter(f => f.folder === FOLDERS.docs);
   const ms = msaState(p); const brands = ms.list.flatMap(m => brandList(m)); const prs = projectsOf(s, p.id);
   const steps = [
-    { t: 'Documents', d: docs.length ? plural(docs.length, 'file') + ' in Partnership Documents' : 'Upload the debrief and presentations', done: docs.length > 0 },
+    { t: 'Debrief & materials', d: docs.length ? plural(docs.length, 'file') + ' uploaded' : 'Upload the debrief and supporting materials', done: docs.length > 0 },
     { t: 'Summary', d: p.summary ? 'Generated ' + fmtDate(p.summary.generatedAt) : 'Claude reads the documents', done: !!p.summary },
     { t: 'Master agreement', d: ms.uploaded.length ? ms.uploaded.length + ' uploaded' + (ms.pending.length ? ', ' + ms.pending.length + ' pending' : '') : ms.pending.length ? 'To be delivered' : 'Upload or mark to be delivered', done: ms.list.length > 0, crit: !ms.uploaded.length || ms.pending.length > 0, go: 'agreements' },
     { t: 'Brands', d: brands.length ? brands.map(b => b.name).join(', ') : 'Add the brands the agreement covers', done: brands.length > 0, go: 'agreements' },
@@ -191,18 +191,22 @@ function DocsPanel({ p, docs }) {
   const [over, setOver] = useState(false);
   const up = useUploads();
   const upload = (files, kind) => up.run(files, () => ({ partnershipId: p.id, folder: FOLDERS.docs, kind, extract: true, dedupe: true }), added => {
-    if (added.length) { toast(plural(added.length, 'file') + ' stored and indexed in Partnership Documents'); if (CAP.sample) startSummary(p, docs.concat(added)); }
+    if (added.length) { toast(plural(added.length, 'file') + ' stored and indexed'); if (CAP.sample) startSummary(p, docs.concat(added)); }
   });
-  return html`<${Card} title=${html`<h2 className="row nw" style=${{ gap: '7px' }}><${Icon} n="folder" s=${16}/>Partnership Documents</h2>`} sub=${plural(docs.length, 'file') + ' · checksummed and verified on upload'}>
+  const debriefs = docs.filter(d => d.kind === 'debrief'), others = docs.filter(d => d.kind !== 'debrief');
+  const row = d => html`<div key=${d.id} className="fitem"><span className="ficon"><${Icon} n="file"/></span>
+      <div style=${{ minWidth: 0 }}><div className="fname" title=${d.name}>${d.name}</div><div className="fmeta">${DOC_KIND[d.kind] || 'Supporting material'} · ${fmtBytes(d.size)} · ${fmtDate(d.createdAt)}${d.version > 1 ? ' · v' + d.version : ''}${d.textChars ? '' : ' · no readable text'}</div></div>
+      <div className="row nw" style=${{ gap: '2px' }}>${d.verified ? html`<span title=${'SHA-256 ' + d.sha256} className="t3"><${Icon} n="shield" s=${14}/></span>` : null}<button className="icon-btn" onClick=${() => downloadFile(d)} aria-label=${'Download ' + d.name}><${Icon} n="down"/></button>
+      ${role.canAgency ? html`<button className="icon-btn" aria-label=${'Move ' + d.name + ' to trash'} onClick=${() => openModal('confirm', { title: 'Move to trash?', body: d.name + ' moves to the trash. It can be restored from Files & storage → Trash.', confirmLabel: 'Move to trash', onConfirm: () => trashFile(d) })}><${Icon} n="trash"/></button>` : null}</div></div>`;
+  return html`<${Card} title=${html`<h2 className="row nw" style=${{ gap: '7px' }}><${Icon} n="folder" s=${16}/>Debrief & supporting materials</h2>`} sub=${plural(docs.length, 'file') + ' · checksummed and verified on upload · Claude reads them for the summary'}>
     ${role.canAgency ? html`<div className=${'drop' + (over ? ' over' : '')} onDragOver=${e => { e.preventDefault(); setOver(true); }} onDragLeave=${() => setOver(false)} onDrop=${e => { e.preventDefault(); setOver(false); const fs = Array.from(e.dataTransfer.files || []); if (fs.length) upload(fs, 'other'); }}>
-      <div className="row"><${FileButton} label="Upload debrief" cls="btn-primary btn-sm" accept=${DOC_ACCEPT} disabled=${up.busy} onFiles=${fs => upload(fs, 'debrief')}/><${FileButton} label="Add related documents" cls="btn-sm" accept=${DOC_ACCEPT} multiple=${true} disabled=${up.busy} onFiles=${fs => upload(fs, 'presentation')}/></div>
-      <span className="t3 xs">PDF, PowerPoint, Word, Excel, CSV or images · drop files here · Claude summarizes them after upload</span>
+      <div className="row"><${FileButton} label="Upload debrief" cls="btn-primary btn-sm" accept=${DOC_ACCEPT} multiple=${true} disabled=${up.busy} onFiles=${fs => upload(fs, 'debrief')}/><${FileButton} label="Add supporting materials" cls="btn-sm" accept=${DOC_ACCEPT} multiple=${true} disabled=${up.busy} onFiles=${fs => upload(fs, 'presentation')}/></div>
+      <span className="t3 xs">Select several files at once or drop them here: presentations, brand guidelines, moodboards, product sheets. PDF, PowerPoint, Word, Excel, CSV or images.</span>
       ${up.view}
     </div>` : null}
-    ${docs.length ? html`<div className="flist">${docs.map(d => html`<div key=${d.id} className="fitem"><span className="ficon"><${Icon} n="file"/></span>
-      <div style=${{ minWidth: 0 }}><div className="fname" title=${d.name}>${d.name}</div><div className="fmeta">${DOC_KIND[d.kind] || 'Document'} · ${fmtBytes(d.size)} · ${fmtDate(d.createdAt)}${d.version > 1 ? ' · v' + d.version : ''}${d.textChars ? '' : ' · no readable text'}</div></div>
-      <div className="row nw" style=${{ gap: '2px' }}>${d.verified ? html`<span title=${'SHA-256 ' + d.sha256} className="t3"><${Icon} n="shield" s=${14}/></span>` : null}<button className="icon-btn" onClick=${() => downloadFile(d)} aria-label=${'Download ' + d.name}><${Icon} n="down"/></button>
-      ${role.canAgency ? html`<button className="icon-btn" aria-label=${'Move ' + d.name + ' to trash'} onClick=${() => openModal('confirm', { title: 'Move to trash?', body: d.name + ' moves to the trash. It can be restored from Files & storage → Trash.', confirmLabel: 'Move to trash', onConfirm: () => trashFile(d) })}><${Icon} n="trash"/></button>` : null}</div></div>`)}</div>` : (!role.canAgency ? html`<p className="t3">No documents yet.</p>` : null)}
+    ${debriefs.length ? html`<div className="stack s6"><span className="eyebrow">Debrief</span><div className="flist">${debriefs.map(row)}</div></div>` : null}
+    ${others.length ? html`<div className="stack s6"><span className="eyebrow">Supporting materials</span><div className="flist">${others.map(row)}</div></div>` : null}
+    ${!docs.length && !role.canAgency ? html`<p className="t3">No documents yet.</p>` : null}
   <//>`;
 }
 function Agreements({ p }) {

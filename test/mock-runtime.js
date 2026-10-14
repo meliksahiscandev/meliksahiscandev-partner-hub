@@ -91,6 +91,7 @@
     json: async (prompt, opts) => {
       window.__sampleCalls.push({ prompt, images: opts && opts.images ? opts.images.length : 0 });
       await new Promise(r => setTimeout(r, 30));
+      if (/=== PROJECT PROTOCOL ===/.test(prompt)) return { summary: 'Summer Glow brings Vaseline to nano creators.' + (prompt.includes('PROTOCOL-MARKER') ? ' Protocol marker seen.' : ' Protocol marker missing.'), objective: 'Trial', deliverables: ['2 Reels'], timeline: 'June', kpis: ['2M views'], mandatories: ['#reklam'] };
       if (/summarize the partnership/.test(prompt)) {
         return { headline: 'Vaseline and Elidor summer campaign with nano and micro creators', overview: 'Debrief asks for Reels and Stories.' + (prompt.includes('DEBRIEF-MARKER') ? ' Marker seen.' : ' Marker missing.'), objectives: ['Awareness', 'Trial'], audience: 'Women 18-34', key_messages: ['Glow all summer'], deliverables: ['20 Reels'], timeline: 'June-August', kpis: ['2M views'], budget: '1.250.000 TL', mandatories: ['#reklam'], restrictions: ['No competitor brands'], open_questions: ['Usage rights period?'], documents: [{ name: 'debrief.pdf', summary: 'Client debrief' }] };
       }

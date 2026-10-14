@@ -362,3 +362,11 @@ pre.inv{white-space:pre-wrap;font-family:var(--f-mono);font-size:12px;background
 .fstep .bar{margin-top:5px}
 .th-sort{all:unset;cursor:pointer;font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit}
 .th-sort:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:2px}
+.proj-sum .card-body{display:flex;flex-direction:column;gap:12px}
+.proj-sum{border-left:3px solid var(--primary)}
+.ps-text{font-size:15px;line-height:1.6;max-width:90ch;color:var(--text);text-wrap:pretty}
+.ps-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.ps-fact{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ps-fact p,.ps-fact ul{margin:0;font-size:12.5px;color:var(--text-2)}
+.ps-fact ul{padding-left:16px}
+button.tag{cursor:pointer}

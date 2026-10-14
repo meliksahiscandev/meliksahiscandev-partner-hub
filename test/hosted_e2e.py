@@ -113,7 +113,7 @@ def main():
             check(blob == sha, 'stored bytes on the server hash to the same SHA-256')
             ft = api(A, '/api/db/doc?path=filetext/' + [k for k, v in st['files'].items() if v['folder'] == 'Partnership Documents'][0])['body']
             check(ft['exists'] and 'DEBRIEF-MARKER' in ft['data']['text'], 'PDF text extracted and indexed on the server')
-            fin(A, 'Add related documents').set_input_files(str(FIX / 'moodboard.png'))
+            fin(A, 'Add supporting materials').set_input_files(str(FIX / 'moodboard.png'))
             A.wait_for_selector('.fitem:has-text("moodboard.png") .fmeta:has-text("verified")', timeout=15000)
             A.locator('button:has-text("Regenerate"), button:has-text("Update summary"), button:has-text("Summarize")').first.click()
             A.wait_for_function('() => document.body.innerText.includes("Images read: 1")', timeout=30000)
@@ -137,7 +137,10 @@ def main():
             btn(A, 'Add platform').click(); A.click('.modal .pop button:has-text("TikTok")')
             btn(A, 'Add deliverable').click(); A.click('.modal .pop button:has-text("Creator")')
             A.locator('.modal .sub-card:has-text("Creators") input').first.fill('2')
+            A.locator('.modal button:has-text("Upload project protocol") + input[type=file]').set_input_files(str(FIX / 'protocol.pdf'))
             btn(A, 'Create project').click(); A.wait_for_selector('h1:has-text("Summer Glow")')
+            toast(A, 'Project summary updated', 30000)
+            check(A.locator('.ps-text:has-text("Protocol marker: seen")').count() == 1, 'project protocol uploaded at creation, read and summarized at the top of the project')
             st = state(A); PRID = [k for k, v in st['projects'].items() if v['name'] == 'Summer Glow'][0]
 
             print('4. Masterfile with Apify lookup and manual ER override', flush=True)
@@ -185,6 +188,7 @@ def main():
             r = api(B, '/api/assets', None)
             check(r['status'] == 403, 'customer cannot list storage')
             nav(B, '#j.' + PRID + '.masterfile'); B.wait_for_selector('text=In customer review')
+            check(B.locator('.ps-text').count() == 1 and B.locator('button:has-text("Upload project protocol"), button:has-text("Add protocol files")').count() == 0, 'customer reads the project summary but cannot change the protocol')
             check(B.locator('.mini-tag').count() == 0, 'no source markers in the customer view')
             B.locator('tr:has-text("Elif Yilmaz") button:has-text("Approve")').click(); toast(B, 'Elif Yilmaz approved')
             B.locator('tr:has-text("Mert Kaya") button:has-text("Comment")').click()

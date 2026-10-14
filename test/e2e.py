@@ -150,11 +150,11 @@ def main():
             check(page.locator('.sum-head:has-text("Vaseline and Elidor")').count() == 1, 'summary rendered in panel')
             check('file.upload' in acts() and 'summary.generate' in acts(), 'upload and summary logged')
             # duplicate
-            file_input_after('Add related documents').set_input_files(str(FIX / 'debrief.pdf'))
+            file_input_after('Add supporting materials').set_input_files(str(FIX / 'debrief.pdf'))
             page.wait_for_selector('text=Already stored', timeout=8000)
             check(len([v for v in docs('files').values() if v['folder'] == 'Partnership Documents']) == 1, 'identical re-upload detected, not duplicated')
             # unsupported type
-            file_input_after('Add related documents').set_input_files(str(FIX / 'legacy.xls'))
+            file_input_after('Add supporting materials').set_input_files(str(FIX / 'legacy.xls'))
             page.wait_for_selector('.fitem:has-text("legacy.xls")', timeout=8000)
             page.wait_for_selector('text=not supported', timeout=8000)
             check(not any(v.get('originalName') == 'legacy.xls' for v in docs('files').values()), 'unsupported .xls rejected before storing')
@@ -192,8 +192,14 @@ def main():
             btn('Add deliverable').click(); page.click('.modal .pop button:has-text("Creator")')
             page.locator('.modal .sub-card:has-text("Creators") input').first.fill('2')
             btn('Add deliverable').click(); page.click('.modal .pop button:has-text("Creator")')
+            page.locator('.modal button:has-text("Upload project protocol") + input[type=file]').set_input_files(str(FIX / 'protocol.pdf'))
+            page.wait_for_selector('.modal .tag:has-text("protocol.pdf")')
             btn('Create project').click()
             page.wait_for_selector('h1:has-text("Summer Glow")')
+            toast_wait('Project summary updated', 20000)
+            check(page.locator('.ps-text:has-text("Protocol marker seen")').count() == 1, 'project protocol uploaded at creation and summarized at the top of the project')
+            pfiles = [v for v in docs('files').values() if v['folder'] == 'Project Protocol']
+            check(len(pfiles) == 1 and pfiles[0]['verified'] and pfiles[0]['projectId'], 'protocol stored in the project, verified')
             pr = list(docs('projects').items()); PRID = pr[0][0]; prd = pr[0][1]
             content = sorted((c['platform'], c['type'], c['qty']) for c in prd['content'])
             check(content == [('instagram', 'post', 1), ('instagram', 'reels', 2), ('tiktok', 'post', 1)] or content == [('instagram', 'reels', 2), ('instagram', 'story', 1), ('tiktok', 'post', 1)], 'content deliverables stored: %s' % content)
@@ -422,7 +428,7 @@ def main():
 
             # ============ 15. trash & restore ============
             print('15. Trash & restore', flush=True)
-            login('owner'); nav('#p.' + PID + '.overview'); page.wait_for_selector('text=Partnership Documents')
+            login('owner'); nav('#p.' + PID + '.overview'); page.wait_for_selector('text=Debrief & supporting materials')
             page.locator('.fitem button[aria-label^="Move debrief.pdf to trash"]').click(); page.locator('.modal button:has-text("Move to trash")').click()
             page.wait_for_timeout(400)
             check(any(v['status'] == 'trashed' for v in docs('files').values() if v['originalName'] == 'debrief.pdf'), 'file moved to trash, not deleted')
@@ -446,14 +452,14 @@ def main():
             check('storage.verify' in acts(), 'integrity run logged')
             # corrupted upload is retried, then rejected
             page.evaluate('() => { window.__corruptNext = 2; }')
-            nav('#p.' + PID + '.overview'); page.wait_for_selector('text=Partnership Documents')
-            file_input_after('Add related documents').set_input_files(str(FIX / 'notes.txt'))
+            nav('#p.' + PID + '.overview'); page.wait_for_selector('text=Debrief & supporting materials')
+            file_input_after('Add supporting materials').set_input_files(str(FIX / 'notes.txt'))
             page.wait_for_selector('text=failed the integrity check', timeout=10000)
             f_ = [v for v in docs('files').values() if v['originalName'] == 'notes.txt']
             check(f_ and f_[0]['status'] == 'failed', 'corrupted upload rejected and marked failed (not silently stored)')
             check('file.upload_failed' in acts(), 'failed upload logged')
             page.evaluate('() => { window.__corruptNext = 1; }')
-            file_input_after('Add related documents').set_input_files(str(FIX / 'notes.txt'))
+            file_input_after('Add supporting materials').set_input_files(str(FIX / 'notes.txt'))
             page.wait_for_selector('.fmeta:text-is("Stored · verified")', timeout=10000)
             f2 = [v for v in docs('files').values() if v['originalName'] == 'notes.txt' and v['status'] == 'active']
             check(f2 and f2[0]['verified'], 'one corrupted attempt is retried and then verified')

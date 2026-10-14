@@ -23,11 +23,36 @@ function ProjectView({ id, tab }) {
       meta=${html`${msa ? html`<${Badge} cls=${msa.status === 'uploaded' ? 'outline' : 'crit'}>${msa.label}${msa.status !== 'uploaded' ? ' · to be delivered' : ''}<//>` : null}${(pr.brandIds || []).map(b => bi[b] ? html`<span key=${b} className="tag">${bi[b].name}</span>` : null)}<span className="t3 small">${(pr.content || []).map(c => c.qty + '× ' + dLabel(c.platform, c.type)).join(' · ')}${(pr.creators || []).length ? ' · ' + pr.creators.map(c => c.count + ' ' + TIERS[c.tier].short.toLowerCase()).join(' + ') + ' creators' : ''}</span>`}
       actions=${role.canAgency ? html`${role.isAdmin ? html`<button className="btn btn-ghost" onClick=${() => openModal('confirm', { title: 'Move ' + pr.name + ' to trash?', body: 'The project is hidden from everyone. Its masterfile, approvals, files and logs are kept and an admin can restore it.', confirmLabel: 'Move to trash', danger: true, onConfirm: async () => { await trashProject(pr); go({ view: 'partnership', id: p.id, tab: 'projects' }); } })}><${Icon} n="archive" s=${15}/>Move to trash</button>` : null}<button className="btn" onClick=${() => openModal('project', { partnershipId: p.id, projectId: pr.id })}><${Icon} n="edit" s=${15}/>Edit scope</button>` : null}/>
     ${msa && msa.status !== 'uploaded' ? html`<div className="banner crit" role="alert"><${Icon} n="alert" s=${18}/><div className="b-body"><div className="b-title">${msa.label} has not been uploaded</div><div className="small">This project runs under a master agreement that is still to be delivered.</div></div></div>` : null}
+    <${ProjectSummary} pr=${pr} p=${p}/>
     <${StageTracker} m=${m}/>
     <${DeliverableTracker} m=${m} pr=${pr} fin=${fin}/>
     <${Tabs} tabs=${tabs} value=${cur} onChange=${t => go({ view: 'project', id: pr.id, tab: t })}/>
     ${cur === 'masterfile' ? html`<${MasterfileTab} pr=${pr} p=${p} infs=${infs} m=${m}/>` : cur === 'match' ? html`<${MatchTab} pr=${pr} infs=${infs} m=${m}/>` : cur === 'review' ? html`<${ReviewTab} pr=${pr} infs=${infs}/>` : cur === 'submission' ? html`<${SubmissionTab} pr=${pr} p=${p} infs=${infs}/>` : cur === 'performance' ? html`<${PerformanceTab} pr=${pr} p=${p} infs=${infs}/>` : html`<${Card} title="Project activity" flush=${true}><${ActivityFeed} filter=${{ prid: pr.id }} limit=${200} more=${true}/><//>`}
   <//>`;
+}
+function ProjectSummary({ pr, p }) {
+  const { s, role } = useCtx();
+  const job = s.jobs['psum:' + pr.id];
+  const files = protocolFiles(s, pr.id);
+  const sum = pr.summary && pr.summary.data;
+  const [lang, setLang] = useState((pr.summary && pr.summary.lang) || 'tr');
+  if (!role.canAgency && !sum) return null;
+  const fact = (label, val) => { const arr = Array.isArray(val) ? val : null; if (arr ? !arr.length : !val) return null; return html`<div className="ps-fact"><span className="eyebrow">${label}</span>${arr ? html`<ul>${arr.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : html`<p>${val}</p>`}</div>`; };
+  const actions = role.canAgency ? html`<div className="row nw" style=${{ gap: '6px' }}>
+    ${sum || files.length ? html`<div className="seg" role="group" aria-label="Summary language"><button aria-pressed=${lang === 'tr'} onClick=${() => setLang('tr')}>TR</button><button aria-pressed=${lang === 'en'} onClick=${() => setLang('en')}>EN</button></div>` : null}
+    ${job ? html`<button className="btn btn-sm" onClick=${() => stopJob('psum:' + pr.id)}><${Icon} n="stop" s=${13}/>Stop</button>` : html`<${Fragment}>
+      ${files.length ? html`<button className="btn btn-sm" id="ps-regen" disabled=${!s.caps.sample} onClick=${() => startProjectSummary(pr, null, lang)}><${Icon} n="refresh" s=${13}/>${sum ? 'Regenerate' : 'Summarize'}</button>` : null}
+      <${FileButton} label=${files.length ? 'Add protocol files' : 'Upload project protocol'} cls=${'btn-sm' + (files.length ? '' : ' btn-primary')} icon="upload" accept=${DOC_ACCEPT} multiple=${true} onFiles=${fs => uploadProtocol(pr, fs)}/><//>`}
+  </div>` : null;
+  return html`<section className="card proj-sum" aria-label="Project summary"><div className="card-body">
+    <div className="between"><div className="row nw" style=${{ gap: '8px' }}><span className="eyebrow">Project summary</span>${sum ? html`<span className="t3 xs">from ${plural((pr.summary.fileIds || []).length, 'protocol file')} · ${fmtWhen(pr.summary.generatedAt)}</span>` : null}</div>${actions}</div>
+    ${job ? html`<div className="banner info"><${Spin}/><div className="b-body">${job.step}</div></div>` : null}
+    ${sum ? html`<${Fragment}>
+      ${sum.summary ? html`<p className="ps-text">${sum.summary}</p>` : null}
+      <div className="ps-facts">${fact('Objective', sum.objective)}${fact('Timeline', sum.timeline)}${fact('KPIs', sum.kpis)}${fact('Mandatories', sum.mandatories)}</div>
+    <//>` : !job ? html`<p className="t2 small">${files.length ? 'The protocol is uploaded. Press Summarize to have Claude write the project summary.' : 'Upload the project protocol (the agreed project brief). Claude reads it and writes a one-paragraph summary here for the team and the brand.'}</p>` : null}
+    ${role.canAgency && files.length ? html`<div className="row" style=${{ gap: '6px' }}>${files.map(f => html`<button key=${f.id} className="tag" title="Download" onClick=${() => downloadFile(f)}><${Icon} n="file" s=${12}/><span className="mono">${f.name}</span></button>`)}</div>` : null}
+  </div></section>`;
 }
 function StageTracker({ m }) {
   const cur = m.stages[m.currentIdx];
@@ -763,6 +788,7 @@ function ProjectModal({ partnershipId, projectId }) {
   const [groups, setGroups] = useState(() => { const g = {}; ((existing && existing.content) || []).forEach(c => { (g[c.platform] = g[c.platform] || []).push({ id: c.id || rid(), type: c.type, qty: String(c.qty || 1) }); }); return Object.keys(g).map(k => ({ id: rid(), platform: k, items: g[k] })); });
   const [creators, setCreators] = useState(() => ((existing && existing.creators) || []).map(c => ({ id: c.id || rid(), tier: c.tier, count: String(c.count || 1) })));
   const [menu, setMenu] = useState(null); const [newBrand, setNewBrand] = useState(''); const [busy, setBusy] = useState(false);
+  const [protocol, setProtocol] = useState([]);
   const msa = msas.find(m => m.id === msaId);
   const brands = msa ? brandList(msa) : [];
   const usedPlats = groups.map(g => g.platform);
@@ -786,9 +812,9 @@ function ProjectModal({ partnershipId, projectId }) {
     const scopeText = content.map(c => c.qty + '× ' + dLabel(c.platform, c.type)).concat(creatorsOut.map(c => c.count + ' ' + TIERS[c.tier].short.toLowerCase())).join(', ');
     if (existing) { const ok = await act(async () => { await dbx.update('projects', existing.id, data); logEvent('project.update', { pid: p.id, prid: existing.id, refName: data.name, text: 'Updated the scope of ' + data.name + ': ' + scopeText }); }, 'Project updated'); setBusy(false); if (ok !== false) closeModal(); return; }
     const id = rid();
-    const ok = await act(async () => { await dbx.set('projects', id, Object.assign(data, { partnershipId: p.id, status: 'active', masterfile: { created: false, status: 'none', round: 0 }, createdAt: nowIso(), createdBy: store.me.id || null })); logEvent('project.create', { pid: p.id, prid: id, refName: data.name, text: 'Created project ' + data.name + ' under ' + msa.label + ': ' + scopeText }); }, 'Project created');
+    const ok = await act(async () => { await dbx.set('projects', id, Object.assign(data, { partnershipId: p.id, status: 'active', masterfile: { created: false, status: 'none', round: 0 }, createdAt: nowIso(), createdBy: store.me.id || null })); logEvent('project.create', { pid: p.id, prid: id, refName: data.name, text: 'Created project ' + data.name + ' under ' + msa.label + ': ' + scopeText + (protocol.length ? ' (with ' + plural(protocol.length, 'protocol file') + ')' : '') }); }, 'Project created');
     setBusy(false);
-    if (ok !== false) { closeModal(); go({ view: 'project', id }); }
+    if (ok !== false) { closeModal(); go({ view: 'project', id }); if (protocol.length) uploadProtocol({ id, name: data.name, partnershipId: p.id, brandIds: bids }, protocol); }
   };
   if (!msas.length) return html`<${Modal} title="New project" onClose=${closeModal}><div className="banner crit"><div className="b-body"><div className="b-title">Add a master agreement first</div><div className="small">A project sits under a master agreement. Upload it, or mark it as to be delivered, in Agreements & brands.</div></div></div><div><button className="btn btn-primary" onClick=${() => { closeModal(); go({ view: 'partnership', id: p.id, tab: 'agreements' }); }}>Open agreements</button></div><//>`;
   return html`<${Modal} title=${existing ? 'Edit project scope' : 'New project'} wide=${true} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${busy} onClick=${save}>${existing ? 'Save changes' : 'Create project'}</button><//>`}>
@@ -819,6 +845,9 @@ function ProjectModal({ partnershipId, projectId }) {
       </div>` : null}
       ${!groups.length && !creators.length ? html`<p className="t3 small">Add content (platform and content types with quantities) and creators (nano or micro, with how many).</p>` : null}
     </div>
+    ${!existing ? html`<div className="field"><span>Project protocol</span>
+      <div className="row"><${FileButton} label=${protocol.length ? 'Add more files' : 'Upload project protocol'} cls="btn-sm" icon="upload" accept=${DOC_ACCEPT} multiple=${true} onFiles=${fs => setProtocol(cur => cur.concat(fs.filter(f => !cur.some(c => c.name === f.name && c.size === f.size))))}/>${protocol.map((f, k) => html`<span key=${k} className="tag"><span className="mono">${f.name}</span><button aria-label=${'Remove ' + f.name} onClick=${() => setProtocol(cur => cur.filter((_, j) => j !== k))}><${Icon} n="x" s=${11}/></button></span>`)}</div>
+      <small>The agreed brief for this project (PDF, Word, PowerPoint…). It is stored with the project and Claude turns it into the project summary at the top of the project page.</small></div>` : null}
   <//>`;
 }
 function NewPartnershipModal() {
