@@ -17,6 +17,9 @@ Ayrıca yalnız sahip ve ajans adminlerinin gördüğü finans bölümü, ekip/m
 `main` dalına her push: testler (iki rol uçtan uca) → Cloudflare'e deploy. Pull request'lerde yalnız testler çalışır.
 GitHub secret'ları: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (zorunlu); `ANTHROPIC_API_KEY` (özet, Excel/görsel okuma),
 `APIFY_TOKEN` (takipçi/ER, post metrikleri), `RESEND_API_KEY` (davet e-postası) — eklendiklerinde özellik kendiliğinden açılır.
+Claude anahtarı bir workspace'e bağlı olmalı (Console → Workspaces → ilgili workspace → API keys). Workspace'siz bir anahtar kullanılacaksa
+`ANTHROPIC_WORKSPACE_ID` secret'ı da eklenir. Her deploy'dan sonra "Quick provider check" adımı Claude/Apify/Resend'i dener (yalnız uyarı verir);
+"Provider probe" iş akışı her pazartesi gerçek ölçüm yapar (bir PR'a `probe` etiketi eklemek de çalıştırır).
 
 ## Mimari
 

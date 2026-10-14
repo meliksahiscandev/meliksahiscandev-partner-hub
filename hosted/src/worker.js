@@ -586,7 +586,7 @@ export class Workspace extends DurableObject {
     const nImg = content.filter(c => c.type === 'image').length;
     // Long documents can take a few minutes; overloaded (529), rate-limited (429) and 5xx answers are retried with backoff.
     const r = await this.upstream('claude', 'https://api.anthropic.com/v1/messages',
-      { method: 'POST', headers: { 'x-api-key': this.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: this.env.CLAUDE_MODEL || 'claude-sonnet-5-5', max_tokens: 6000, messages: [{ role: 'user', content }] }) },
+      { method: 'POST', headers: Object.assign({ 'x-api-key': this.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, this.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': this.env.ANTHROPIC_WORKSPACE_ID } : {}), body: JSON.stringify({ model: this.env.CLAUDE_MODEL || 'claude-sonnet-5-5', max_tokens: 6000, messages: [{ role: 'user', content }] }) },
       { tries: 3, timeout: 240000, base: 2000, stub: () => ({ content: [{ type: 'text', text: stubClaude(prompt, nImg) }], model: 'stub', stop_reason: 'end_turn' }) });
     if (!r.ok) {
       const msg = r.timeout ? 'Claude did not answer within 4 minutes. Try again, or summarise fewer documents at once.' : upstreamMsg(r, 'Claude API error');

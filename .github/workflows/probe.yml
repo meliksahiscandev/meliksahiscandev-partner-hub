@@ -23,6 +23,7 @@ jobs:
       - name: Probe providers
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: node test/probe.mjs

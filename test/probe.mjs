@@ -7,6 +7,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 const env = process.env;
 const SITE = (env.SITE || readFileSync(new URL('../agents/site.url', import.meta.url), 'utf8')).trim().replace(/\/$/, '');
 const MODEL = env.CLAUDE_MODEL || 'claude-sonnet-5-5';
+const QUICK = env.PROBE_QUICK === '1'; // after each deploy: health, one tiny Claude call, Apify account, Resend; no scraping runs
 const rows = []; const notes = []; let down = false;
 const pct = (a, q) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(q * s.length))] : null; };
 const secs = ms => ms === null || ms === undefined ? '—' : (ms / 1000).toFixed(1) + ' s';
@@ -35,14 +36,17 @@ async function site() {
 
 async function claude() {
   if (!env.ANTHROPIC_API_KEY) { row('Claude', 'not configured', 0, 0, [], 'ANTHROPIC_API_KEY missing'); return; }
-  const H = { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' };
+  // Keys that are not scoped to a workspace need the anthropic-workspace-id header (optional ANTHROPIC_WORKSPACE_ID secret).
+  const H = Object.assign({ 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } : {});
   const lat = []; let ok = 0; const errs = []; let limits = '';
-  for (let i = 0; i < 6; i++) {
+  const n = QUICK ? 1 : 6;
+  for (let i = 0; i < n; i++) {
     const r = await timed('https://api.anthropic.com/v1/messages', { method: 'POST', headers: H, body: JSON.stringify({ model: MODEL, max_tokens: 16, messages: [{ role: 'user', content: 'Reply with the single word OK.' }] }) }, 60000);
     lat.push(r.ms); if (r.status === 200) ok++; else errs.push(r.status + ' ' + errOf(r));
     if (r.headers && !limits) { const g = k => r.headers.get(k); if (g('anthropic-ratelimit-requests-limit')) limits = 'limits: ' + g('anthropic-ratelimit-requests-limit') + ' req/min, ' + g('anthropic-ratelimit-input-tokens-limit') + ' input tok/min, ' + g('anthropic-ratelimit-output-tokens-limit') + ' output tok/min'; }
   }
-  row('Claude', 'short call ×6 (' + MODEL + ')', 6, ok, lat, (errs.length ? 'errors: ' + errs.join('; ') + '. ' : '') + limits);
+  row('Claude', 'short call ×' + n + ' (' + MODEL + ')', n, ok, lat, (errs.length ? 'errors: ' + errs.join('; ') + '. ' : '') + limits);
+  if (QUICK) { if (!ok) down = true; return; }
   // A summary-sized call: ~20k input tokens of brief text, 700 output tokens.
   const para = 'The brand wants awareness for the summer range among 18-34 year olds in Turkey, with Instagram Reels and TikTok videos, nano and micro creators, mandatory #reklam disclosure, no competitor products, and weekly reporting of views, reach and engagement. ';
   const doc = Array.from({ length: 420 }, (_, i) => 'Section ' + (i + 1) + '. ' + para).join('\n');
@@ -58,6 +62,7 @@ async function apify() {
   const run = (actor, input, secs) => timed('https://api.apify.com/v2/acts/' + actor + '/run-sync-get-dataset-items?timeout=' + secs, { method: 'POST', headers: H, body: JSON.stringify(input) }, (secs + 40) * 1000);
   const me = await timed('https://api.apify.com/v2/users/me/limits', { headers: H }, 20000);
   if (me.status === 200 && me.body && me.body.data) { const d = me.body.data; const used = d.current && d.current.monthlyUsageUsd; const max = d.limits && d.limits.maxMonthlyUsageUsd; notes.push('Apify this month: $' + (used !== undefined ? (+used).toFixed(2) : '?') + ' used of $' + (max !== undefined ? max : '?') + (d.limits && d.limits.maxConcurrentActorJobs ? ', max ' + d.limits.maxConcurrentActorJobs + ' concurrent runs' : '')); }
+  if (QUICK) { row('Apify', 'account reachable', 1, me.status === 200 ? 1 : 0, [me.ms], me.status === 200 ? '' : me.status + ' ' + errOf(me)); if (me.status !== 200) down = true; return; }
   let okAll = 0;
   const ig = await run('apify~instagram-profile-scraper', { usernames: ['natgeo', 'nasa', 'instagram'] }, 120);
   const igItems = Array.isArray(ig.body) ? ig.body.filter(x => x && x.username) : [];
