@@ -373,3 +373,4 @@ button.tag{cursor:pointer}
 .proj-sum .between{flex-wrap:wrap;row-gap:8px}
 .proj-sum .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .tbl-wrap{position:relative}
+.nav-meta{display:block;font-size:10.5px;color:#5D6A80;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
