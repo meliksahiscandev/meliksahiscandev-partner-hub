@@ -332,7 +332,11 @@ def main():
                 page.wait_for_function('n => document.querySelectorAll("tbody button").length && Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Submit preview")).length === n', arg=4 - _, timeout=8000)
                 page.locator('button:has-text("Submit preview")').first.click(); page.fill('#pv-url', 'https://drive.google.com/file/d/abc%d' % _); btn('Send for approval').click(); toast_wait('Preview sent')
                 page.wait_for_selector('.modal', state='detached', timeout=8000)
-            check(page.locator('button:has-text("Submit preview")').count() == 0, 'all four previews submitted')
+            try:
+                page.wait_for_function('() => !Array.from(document.querySelectorAll("tbody button")).some(b => b.textContent.includes("Submit preview"))', timeout=8000); done_ = True
+            except Exception:
+                done_ = False
+            check(done_, 'all four previews submitted')
             login('can'); nav('#j.' + PRID + '.review'); page.wait_for_selector('text=Open preview')
             for _ in range(3):
                 n_ = page.locator('tbody button:has-text("Approve")').count()
