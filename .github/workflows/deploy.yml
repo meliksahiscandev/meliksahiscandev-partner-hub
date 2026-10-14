@@ -39,7 +39,9 @@ jobs:
       - name: Build
         run: python3 build.py && node --check app.check.js && node --check hosted/src/worker.js && node --check hosted/client/runtime.js
       - name: Artifact version (mocked runtime)
-        run: python3 test/e2e.py | tee e2e.log; grep -q "RESULT: .* 0 failed" e2e.log
+        run: |
+          python3 test/e2e.py | tee e2e.log
+          grep -q "RESULT: .* 0 failed" e2e.log
       - name: Hosted version (local Worker, two accounts)
         run: |
           cd hosted
