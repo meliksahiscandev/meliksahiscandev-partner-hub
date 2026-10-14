@@ -13,6 +13,9 @@ Owner: Meliksah (Games Medya). He writes Turkish; answer in Turkish. Product cop
 - `/api/health` is public and non-sensitive: version, feature flags, counts, errors in the last 24 h, storage, and per-provider call counts/latency (`providers`, numbers only).
 - Every provider call goes through `upstream()`/`withRetry()` (retry 429/5xx/529 with backoff, timeouts, counters). Never call `fetch` to a provider directly. In stub mode `/api/test/fault` (owner only) queues injected failures for `test/reliability.mjs`. `.github/workflows/probe.yml` measures the real providers weekly (label a PR `probe` to run it on demand).
 
+## Design
+- Dark "signal" theme in `src/styles.css`: dark tokens on bare `:root` (default), light under `:root[data-theme="light"]` (sidebar "Light mode" switch, saved as `ph-theme`). Fonts: Geist (UI), Chakra Petch (numbers, page titles), Geist Mono (handles, codes). The signal gradient (cyan → violet → magenta) is reserved for progress: stage path, bars (sized to the track so colour = position on the scale), active tab and nav item. Status colours only for state. No uppercase labels. `hosted/client/login.html` mirrors the tokens.
+
 ## Rules
 - Never put keys, passwords or tokens in the repo, the page, docs or the Ops Center. Secrets are GitHub Actions secrets copied to the Worker at deploy.
 - Never weaken a server permission to make a UI flow work; change the UI or add a narrowly checked endpoint.

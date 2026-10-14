@@ -157,6 +157,7 @@ function Sidebar() {
     <div className="side-foot">
       ${s.me.id ? html`<div className="me"><${Avatar} src=${s.me.avatar} name=${s.me.name}/><div style=${{ minWidth: 0, flex: 1 }}><div className="n">${s.me.name || 'You'}</div><div className="r">${role.status === 'ok' ? role.label : 'Not joined'}</div></div>
         ${CAP.hosted ? html`<div className="row nw" style=${{ gap: '2px' }}><button className="icon-btn side-ib" aria-label="Change password" title="Change password" onClick=${() => openModal('password')}><${Icon} n="key" s=${15}/></button><button className="icon-btn side-ib" aria-label="Sign out" title="Sign out" onClick=${() => CAP.hosted.logout()}><${Icon} n="out" s=${15}/></button></div>` : null}</div>` : null}
+      <label className="switch"><span>Light mode</span><input type="checkbox" id="theme-light" checked=${s.ui.theme === 'light'} onChange=${e => setTheme(e.target.checked ? 'light' : 'dark')}/></label>
       ${role.isAgency ? html`<label className="switch"><span>Preview as customer</span><input type="checkbox" checked=${!!s.ui.previewCustomer} onChange=${e => { store.ui = Object.assign({}, store.ui, { previewCustomer: e.target.checked }); emit(); }}/></label>` : null}
     </div>
   </aside>`;

@@ -3,6 +3,19 @@ const { useState, useEffect, useMemo, useRef, useCallback, Fragment } = React;
 const html = htm.bind(React.createElement);
 const TAB_ID = Math.random().toString(36).slice(2, 8);
 const HOSTED = !!window.__HOSTED__;
+// Dark is the default look. Light only when chosen here or set explicitly by the host page (data-theme="light").
+const THEME_KEY = 'ph-theme';
+function initialTheme() {
+  let t = null; try { t = localStorage.getItem(THEME_KEY); } catch (e) { }
+  if (t !== 'light' && t !== 'dark') t = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  return t;
+}
+function setTheme(t) {
+  try { localStorage.setItem(THEME_KEY, t); } catch (e) { }
+  document.documentElement.setAttribute('data-theme', t);
+  store.ui = Object.assign({}, store.ui, { theme: t }); emit();
+}
 
 const PLATFORMS = {
   instagram: { label: 'Instagram', short: 'IG', types: ['post', 'story', 'reels'], host: /(^|\.)instagram\.com$/i },
@@ -137,7 +150,7 @@ const store = {
   sampleLimits: null,
   partnerships: [], projects: [], influencers: [], files: [], invites: [], members: [], finance: [], audit: [], auditOlder: [], settings: {},
   loaded: { partnerships: false, projects: false, influencers: false, files: false, invites: false, members: false, finance: false, audit: false, settings: false },
-  ui: { previewCustomer: false },
+  ui: { previewCustomer: false, theme: initialTheme() },
   jobs: {}, toasts: [], outboxN: 0, auditShard: {},
 };
 const subs = new Set();
