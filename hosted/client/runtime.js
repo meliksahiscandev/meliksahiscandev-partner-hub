@@ -255,6 +255,7 @@
     email: (to, subject, body) => api('/api/email', { body: { to, subject, body } }),
     social: {
       profile: (platform, handle) => api('/api/social/profile', { body: { platform, handle } }),
+      profiles: (platform, handles) => api('/api/social/profiles', { body: { platform, handles } }),
       post: url => api('/api/social/post', { body: { url } }),
       capture: url => api('/api/social/capture', { body: { url }, blob: true }),
     },

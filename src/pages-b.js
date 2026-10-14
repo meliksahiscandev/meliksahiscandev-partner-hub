@@ -164,17 +164,36 @@ async function refreshCreatorStats(infs, onProgress) {
   const res = { updated: 0, failed: [], keptManual: 0 };
   const jobs = []; infs.forEach(i => enabledPlats(i).forEach(k => { if ((i.platforms[k] || {}).handle) jobs.push({ i, k }); }));
   const byInf = {};
-  for (let n = 0; n < jobs.length; n++) {
-    const { i, k } = jobs[n]; onProgress && onProgress(n + 1, jobs.length, i, k);
+  const apply = (i, k, r) => {
     const cur = i.platforms[k];
-    try {
-      const r = await CAP.hosted.social.profile(k, cur.handle);
-      const x = { fetched: { followers: r.followers, er: r.er, at: nowIso(), sample: r.sample || 0, source: r.source || 'apify' } };
-      if (cur.fSource !== 'manual' && isNum(r.followers)) { x.followers = r.followers; x.fSource = 'apify'; }
-      if (cur.erSource !== 'manual' && isNum(r.er)) { x.er = r.er; x.erSource = 'apify'; }
-      if (cur.fSource === 'manual' || cur.erSource === 'manual') res.keptManual++;
-      (byInf[i.id] = byInf[i.id] || { i, upd: {} }).upd[k] = x; res.updated++;
-    } catch (e) { res.failed.push(i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e)); }
+    const x = { fetched: { followers: r.followers, er: r.er, at: nowIso(), sample: r.sample || 0, source: r.source || 'apify' } };
+    if (cur.fSource !== 'manual' && isNum(r.followers)) { x.followers = r.followers; x.fSource = 'apify'; }
+    if (cur.erSource !== 'manual' && isNum(r.er)) { x.er = r.er; x.erSource = 'apify'; }
+    if (cur.fSource === 'manual' || cur.erSource === 'manual') res.keptManual++;
+    (byInf[i.id] = byInf[i.id] || { i, upd: {} }).upd[k] = x; res.updated++;
+  };
+  const batch = jobs.length > 1 && CAP.hosted && CAP.hosted.social && CAP.hosted.social.profiles;
+  if (batch) {
+    // One lookup run per platform for up to 20 creators: much faster and kinder to rate limits than one run each.
+    let done = 0;
+    for (const k of Object.keys(PLATFORMS)) {
+      const js = jobs.filter(j => j.k === k);
+      for (let o = 0; o < js.length; o += 20) {
+        const chunk = js.slice(o, o + 20);
+        onProgress && onProgress(done + chunk.length, jobs.length, chunk[0].i, k, chunk.length);
+        try {
+          const r = await CAP.hosted.social.profiles(k, chunk.map(j => j.i.platforms[k].handle));
+          for (const j of chunk) { const x = (r.results || {})[String(j.i.platforms[k].handle).replace(/^@/, '').trim()]; if (x && !x.error) apply(j.i, k, x); else res.failed.push(j.i.name + ' (' + PLATFORMS[k].label + '): ' + ((x && x.message) || 'not a valid username')); }
+        } catch (e) { chunk.forEach(j => res.failed.push(j.i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e))); }
+        done += chunk.length;
+      }
+    }
+  } else {
+    for (let n = 0; n < jobs.length; n++) {
+      const { i, k } = jobs[n]; onProgress && onProgress(n + 1, jobs.length, i, k, 1);
+      try { apply(i, k, await CAP.hosted.social.profile(k, i.platforms[k].handle)); }
+      catch (e) { res.failed.push(i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e)); }
+    }
   }
   for (const { i, upd } of Object.values(byInf)) {
     const data = { platforms: upd, statsAt: nowIso() };
@@ -189,7 +208,7 @@ async function fetchAllStats(pr, infs) {
   if (!socialOn()) { toast('Automatic lookup is not set up on the server.', 'warn'); return; }
   setJob(key, { step: 'Starting…' });
   try {
-    const r = await refreshCreatorStats(infs, (n, t, i, k) => setJob(key, { step: 'Fetching ' + n + '/' + t + ' · @' + ((i.platforms[k] || {}).handle || i.name) }));
+    const r = await refreshCreatorStats(infs, (n, t, i, k, size) => setJob(key, { step: 'Fetching ' + n + '/' + t + (size > 1 ? ' · ' + PLATFORMS[k].label : ' · @' + ((i.platforms[k] || {}).handle || i.name)) }));
     logEvent('masterfile.refresh_stats', { pid: pr.partnershipId, prid: pr.id, refName: pr.name, scope: 'agency', text: 'Fetched followers and ER for ' + plural(r.updated, 'profile') + (r.failed.length ? ' (' + r.failed.length + ' failed)' : ''), meta: { updated: r.updated, failed: r.failed.length, keptManual: r.keptManual } });
     toast(r.failed.length ? 'Updated ' + r.updated + ', failed ' + r.failed.length + ': ' + r.failed.slice(0, 2).join('; ') : 'Stats updated for ' + plural(r.updated, 'profile') + (r.keptManual ? '. Manual values kept.' : ''), r.failed.length ? 'warn' : 'ok');
   } catch (e) { toast(errText(e), 'crit'); }

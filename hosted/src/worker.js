@@ -47,6 +47,8 @@ const b64e = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s +
 const b64d = s => { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 const hex = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 const sha256 = async data => hex(await crypto.subtle.digest('SHA-256', typeof data === 'string' ? enc.encode(data) : data));
+// A short, safe message from a provider error body (never echoes request data).
+const upstreamMsg = (r, label) => { const b = r.body || {}; const e = b.error || {}; const m = (typeof e === 'string' ? e : e.message) || b.message || r.error || ''; return label + (r.status ? ' ' + r.status : '') + (m ? ': ' + String(m).slice(0, 240) : ''); };
 const rid = (n = 12) => { const a = 'abcdefghijklmnopqrstuvwxyz0123456789'; const r = crypto.getRandomValues(new Uint8Array(n)); let s = ''; for (const x of r) s += a[x % 36]; return s; };
 const nowIso = () => new Date().toISOString();
 const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
@@ -293,6 +295,8 @@ export class Workspace extends DurableObject {
       if (p.startsWith('/_blob/')) return this.serveBlob(user, p.slice(7));
       if (p === '/api/claude' && m === 'POST') return await this.claude(req, user);
       if (p === '/api/social/profile' && m === 'POST') return await this.socialProfile(req, user);
+      if (p === '/api/social/profiles' && m === 'POST') return await this.socialProfiles(req, user);
+      if (p === '/api/test/fault' && m === 'POST' && this.env.STUB_PROVIDERS === '1' && user.is_owner) { const b = await req.json().catch(() => ({})); this.faults = this.faults || {}; this.faults[String(b.provider)] = (Array.isArray(b.queue) ? b.queue : []).slice(0, 20); return json({ ok: true }); }
       if (p === '/api/social/post' && m === 'POST') return await this.socialPost(req, user);
       if (p === '/api/social/capture' && m === 'POST') return await this.capture(req, user);
       if (p === '/api/email' && m === 'POST') { const r = await this.email(req, user); this.broadcast(); return r; }
@@ -320,6 +324,7 @@ export class Workspace extends DurableObject {
       counts: Object.fromEntries(this.q("SELECT col, COUNT(*) AS n FROM docs WHERE deleted=0 AND col IN ('partnerships','projects','influencers','files','invites') GROUP BY col").map(r => [r.col, r.n]).concat([['users', this.one('SELECT COUNT(*) AS n FROM users').n]])),
       pending: { masterfileReviews: this.q("SELECT COUNT(*) AS n FROM docs WHERE col='projects' AND deleted=0 AND json_extract(data,'$.masterfile.status')='in_review'")[0].n },
       sockets: this.ctx.getWebSockets().length,
+      providers: this.providerStats(),
     }, 200, { 'access-control-allow-origin': '*' });
   }
   noteError(where, e) {
@@ -328,6 +333,60 @@ export class Workspace extends DurableObject {
       list.push({ at: nowIso(), where, msg: String((e && e.message) || e).slice(0, 300) }); list = list.slice(-50);
       this.sql.exec("INSERT INTO meta(k,v) VALUES('errors',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", JSON.stringify(list));
     } catch (x) { }
+  }
+  /* ---------- provider calls: retries, timeouts, counters ---------- */
+  // Retries transient failures (network, 429, 5xx incl. Claude's 529 overloaded; timeouts only when retryTimeout)
+  // with exponential backoff + jitter, honouring Retry-After. A spending-cap 429 is never retried.
+  async withRetry(name, o, fn) {
+    const STUB = this.env.STUB_PROVIDERS === '1'; const tries = o.tries || 2; const t0 = Date.now(); let r;
+    for (let a = 1; a <= tries; a++) {
+      try {
+        const f = STUB ? this.takeFault(name) : null;
+        if (f === 'timeout') { const e = new Error('The operation timed out'); e.name = 'TimeoutError'; throw e; }
+        if (f === 'network') throw new TypeError('Network connection lost.');
+        r = f ? { status: +f, body: { error: { type: 'injected', message: 'Injected ' + f } } } : await fn();
+      } catch (e) {
+        const to = !!e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+        r = { status: 0, timeout: to, error: to ? 'timed out' : String((e && e.message) || e).slice(0, 200) };
+      }
+      r.ok = r.status >= 200 && r.status < 300; r.attempts = a;
+      if (r.ok || a === tries) break;
+      const spendCap = /spend_limit|credit balance|usage limit/i.test(JSON.stringify(r.body || ''));
+      const transient = r.status === 0 ? (!r.timeout || !!o.retryTimeout) : (r.status === 429 || r.status >= 500);
+      if (!transient || spendCap) break;
+      const wait = Math.min(r.retryAfter ? r.retryAfter * 1000 : (o.base || 1000) * 2 ** (a - 1), o.maxWait || 15000) + Math.floor(Math.random() * 400);
+      await new Promise(res => setTimeout(res, STUB ? 20 : wait));
+    }
+    r.ms = Date.now() - t0;
+    this.recordCall(name, r);
+    return r;
+  }
+  async upstream(name, url, init, o = {}) {
+    return this.withRetry(name, o, async () => {
+      if (this.env.STUB_PROVIDERS === '1') return { status: 200, body: o.stub ? o.stub() : {} };
+      const res = await fetch(url, Object.assign({}, init, { signal: AbortSignal.timeout(o.timeout || 60000) }));
+      const txt = await res.text(); let body = null; try { body = txt ? JSON.parse(txt) : null; } catch (e) { body = { error: { message: txt.slice(0, 200) } }; }
+      return { status: res.status, body, retryAfter: Math.min(+res.headers.get('retry-after') || 0, 30) };
+    });
+  }
+  takeFault(name) { const q = this.faults && this.faults[name]; return q && q.length ? q.shift() : null; }
+  recordCall(name, r) {
+    try {
+      const row = this.one("SELECT v FROM meta WHERE k='calls'"); let m = {}; try { m = JSON.parse(row ? row.v : '{}'); } catch (e) { }
+      const list = m[name] || []; list.push([Date.now(), r.ok ? 1 : 0, r.ms, r.attempts, r.status || 0]); m[name] = list.slice(-200);
+      this.sql.exec("INSERT INTO meta(k,v) VALUES('calls',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", JSON.stringify(m));
+    } catch (e) { }
+  }
+  providerStats() {
+    let m = {}; try { const row = this.one("SELECT v FROM meta WHERE k='calls'"); m = JSON.parse(row ? row.v : '{}'); } catch (e) { }
+    const day = Date.now() - 86400000; const out = {};
+    for (const [k, list] of Object.entries(m)) {
+      const d = list.filter(x => x[0] > day); const ms = d.map(x => x[2]).sort((a, b) => a - b);
+      const pct = q => ms.length ? ms[Math.min(ms.length - 1, Math.floor(q * ms.length))] : null;
+      const last = list[list.length - 1] || null;
+      out[k] = { calls24h: d.length, failed24h: d.filter(x => !x[1]).length, retried24h: d.filter(x => x[3] > 1).length, p50ms: pct(0.5), p95ms: pct(0.95), lastAt: last ? new Date(last[0]).toISOString() : null, lastOk: last ? !!last[1] : null, lastStatus: last ? last[4] : null };
+    }
+    return out;
   }
   webSocketMessage(ws, msg) { if (msg === 'ping') { try { ws.send('pong'); } catch (e) { } } }
   webSocketClose(ws) { try { ws.close(); } catch (e) { } }
@@ -519,52 +578,108 @@ export class Workspace extends DurableObject {
     const b = await req.json().catch(() => ({}));
     const prompt = String(b.prompt || ''); if (!prompt) return fail('invalid_request', 'Empty prompt.');
     if (!this.throttle('claude:' + user.id, 120, 60 * 60000)) return fail('rate_limited', 'Claude limit reached for this hour.', 429);
-    if (this.env.STUB_PROVIDERS === '1') return json({ text: stubClaude(prompt, (b.images || []).filter(im => im && im.data && /^image\//.test(im.media_type)).length) });
-    if (!this.env.ANTHROPIC_API_KEY) return fail('sampling_disabled', 'Add the ANTHROPIC_API_KEY secret to enable Claude.', 501);
+    const STUB = this.env.STUB_PROVIDERS === '1';
+    if (!STUB && !this.env.ANTHROPIC_API_KEY) return fail('sampling_disabled', 'Add the ANTHROPIC_API_KEY secret to enable Claude.', 501);
     const content = [];
     for (const im of (b.images || []).slice(0, 5)) if (im && im.data && /^image\/(png|jpeg|webp|gif)$/.test(im.media_type)) content.push({ type: 'image', source: { type: 'base64', media_type: im.media_type, data: im.data } });
     content.push({ type: 'text', text: prompt + (b.json ? '\n\nReply with the JSON only.' : '') });
-    const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': this.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: this.env.CLAUDE_MODEL || 'claude-sonnet-5-5', max_tokens: 6000, messages: [{ role: 'user', content }] }) });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) { this.noteError('claude', (j.error && j.error.message) || res.status); return fail(res.status === 429 ? 'rate_limited' : 'upstream_error', (j.error && j.error.message) || ('Claude API error ' + res.status), res.status === 429 ? 429 : 502); }
-    return json({ text: (j.content || []).filter(c => c.type === 'text').map(c => c.text).join(''), model: j.model, truncated: j.stop_reason === 'max_tokens' });
+    const nImg = content.filter(c => c.type === 'image').length;
+    // Long documents can take a few minutes; overloaded (529), rate-limited (429) and 5xx answers are retried with backoff.
+    const r = await this.upstream('claude', 'https://api.anthropic.com/v1/messages',
+      { method: 'POST', headers: { 'x-api-key': this.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: JSON.stringify({ model: this.env.CLAUDE_MODEL || 'claude-sonnet-5-5', max_tokens: 6000, messages: [{ role: 'user', content }] }) },
+      { tries: 3, timeout: 240000, base: 2000, stub: () => ({ content: [{ type: 'text', text: stubClaude(prompt, nImg) }], model: 'stub', stop_reason: 'end_turn' }) });
+    if (!r.ok) {
+      const msg = r.timeout ? 'Claude did not answer within 4 minutes. Try again, or summarise fewer documents at once.' : upstreamMsg(r, 'Claude API error');
+      this.noteError('claude', msg);
+      return fail(r.status === 429 ? 'rate_limited' : 'upstream_error', msg, r.status === 429 ? 429 : r.timeout ? 504 : 502);
+    }
+    const j = r.body || {};
+    return json({ text: (j.content || []).filter(c => c.type === 'text').map(c => c.text).join(''), model: j.model, truncated: j.stop_reason === 'max_tokens', attempts: r.attempts });
   }
 
   /* ---------- social data (Apify) ---------- */
-  async apify(actor, input) {
-    const res = await fetch('https://api.apify.com/v2/acts/' + actor + '/run-sync-get-dataset-items?timeout=120&token=' + encodeURIComponent(this.env.APIFY_TOKEN), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
-    const j = await res.json().catch(() => null);
-    if (!res.ok) { const msg = (j && j.error && j.error.message) || ('Apify error ' + res.status); this.noteError('apify:' + actor, msg); throw { code: 'upstream_error', message: msg }; }
-    return Array.isArray(j) ? j : [];
+  // run-sync waits for the run (HTTP limit 300 s). The token goes in the Authorization header, never in the URL.
+  async apify(actor, input, runSecs) {
+    runSecs = runSecs || 120;
+    const r = await this.upstream('apify', 'https://api.apify.com/v2/acts/' + actor + '/run-sync-get-dataset-items?timeout=' + runSecs,
+      { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + this.env.APIFY_TOKEN }, body: JSON.stringify(input) },
+      { tries: 2, timeout: (runSecs + 40) * 1000, base: 3000, stub: () => [] });
+    if (!r.ok) {
+      const msg = r.timeout || r.status === 408 ? 'The lookup took longer than ' + runSecs + ' s. Try again in a minute.' : upstreamMsg(r, 'Apify error');
+      this.noteError('apify:' + actor, msg); throw { code: r.status === 429 ? 'rate_limited' : 'upstream_error', message: msg };
+    }
+    return Array.isArray(r.body) ? r.body : [];
+  }
+  parseInstagramProfile(it, handle) {
+    const followers = num(it.followersCount, it.followers);
+    const posts = (it.latestPosts || []).slice(0, 12);
+    const engs = posts.map(x => (num(x.likesCount, x.likes) || 0) + (num(x.commentsCount, x.comments) || 0)).filter(n => n >= 0);
+    const er = followers && engs.length ? (engs.reduce((t, n) => t + n, 0) / engs.length) / followers * 100 : null;
+    return { platform: 'instagram', handle, followers, er: er === null ? null : Math.round(er * 100) / 100, posts: num(it.postsCount), fullName: it.fullName || '', private: !!it.private, sample: posts.length, source: 'apify:instagram-profile-scraper' };
+  }
+  parseTiktokProfile(items, handle) {
+    const first = items.find(x => x && x.authorMeta) || items.find(x => x && !x.error) || null;
+    if (!first) return null;
+    const am = first.authorMeta || first.author || first;
+    const followers = num(am.fans, am.followers, am.followerCount, (am.stats || {}).followerCount);
+    const vids = items.filter(x => x && (x.playCount !== undefined || x.diggCount !== undefined)).slice(0, 12);
+    const engs = vids.map(x => (num(x.diggCount) || 0) + (num(x.commentCount) || 0) + (num(x.shareCount) || 0));
+    const er = followers && engs.length ? (engs.reduce((t, n) => t + n, 0) / engs.length) / followers * 100 : null;
+    return { platform: 'tiktok', handle, followers, er: er === null ? null : Math.round(er * 100) / 100, posts: num(am.video), fullName: am.nickName || am.name || '', sample: vids.length, source: 'apify:tiktok-profile-scraper' };
+  }
+  // Many creators in one Apify run (Fetch all): one run per platform per batch instead of one run per creator.
+  async socialProfiles(req, user) {
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
+    const b = await req.json().catch(() => ({}));
+    const platform = b.platform === 'tiktok' ? 'tiktok' : 'instagram';
+    const handles = Array.from(new Set((Array.isArray(b.handles) ? b.handles : []).map(h => String(h || '').replace(/^@/, '').trim()).filter(h => /^[A-Za-z0-9._]{1,40}$/.test(h))));
+    if (!handles.length) return fail('bad_request', 'No valid usernames.');
+    if (handles.length > 25) return fail('bad_request', 'At most 25 usernames per request.');
+    const STUB = this.env.STUB_PROVIDERS === '1';
+    if (!STUB && !this.env.APIFY_TOKEN) return fail('not_configured', 'Add the APIFY_TOKEN secret to fetch followers automatically.', 501);
+    if (!this.throttle('apify:' + user.id, 300, 60 * 60000)) return fail('rate_limited', 'Lookup limit reached for this hour.', 429);
+    const results = {};
+    try {
+      if (platform === 'instagram') {
+        const items = await this.apify('apify~instagram-profile-scraper', { usernames: handles }, 240);
+        for (const h of handles) {
+          if (STUB) { results[h] = stubProfile(platform, h); continue; }
+          const it = items.find(x => x && String(x.username || x.inputUrl || '').toLowerCase().replace(/^.*instagram\.com\//, '').replace(/\/$/, '') === h.toLowerCase());
+          results[h] = !it || it.error ? { error: 'not_found', message: 'Instagram profile @' + h + ' was not found or is private.' } : this.parseInstagramProfile(it, h);
+        }
+      } else {
+        const items = await this.apify('clockworks~tiktok-profile-scraper', { profiles: handles, resultsPerPage: 12, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false }, 240);
+        for (const h of handles) {
+          if (STUB) { results[h] = stubProfile(platform, h); continue; }
+          const mine = items.filter(x => x && String(((x.authorMeta || x.author || {}).name) || x.input || '').toLowerCase() === h.toLowerCase());
+          const pr = mine.length ? this.parseTiktokProfile(mine, h) : null;
+          results[h] = pr || { error: 'not_found', message: 'TikTok profile @' + h + ' was not found or has no public videos.' };
+        }
+      }
+    } catch (e) { return fail(e.code || 'upstream_error', 'Could not fetch the profiles: ' + (e.message || e), e.code === 'rate_limited' ? 429 : 502); }
+    return json({ platform, results });
   }
   async socialProfile(req, user) {
     const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     const platform = b.platform === 'tiktok' ? 'tiktok' : 'instagram'; const handle = String(b.handle || '').replace(/^@/, '').trim();
     if (!/^[A-Za-z0-9._]{1,40}$/.test(handle)) return fail('bad_request', 'Enter a valid username.');
-    if (this.env.STUB_PROVIDERS === '1') return json(stubProfile(platform, handle));
-    if (!this.env.APIFY_TOKEN) return fail('not_configured', 'Add the APIFY_TOKEN secret to fetch followers automatically.', 501);
+    const STUB = this.env.STUB_PROVIDERS === '1';
+    if (!STUB && !this.env.APIFY_TOKEN) return fail('not_configured', 'Add the APIFY_TOKEN secret to fetch followers automatically.', 501);
     if (!this.throttle('apify:' + user.id, 300, 60 * 60000)) return fail('rate_limited', 'Lookup limit reached for this hour.', 429);
     try {
       if (platform === 'instagram') {
         const items = await this.apify('apify~instagram-profile-scraper', { usernames: [handle] });
+        if (STUB) return json(stubProfile(platform, handle));
         const it = items[0]; if (!it || it.error) return fail('not_found', 'Instagram profile @' + handle + ' was not found or is private.', 404);
-        const followers = num(it.followersCount, it.followers);
-        const posts = (it.latestPosts || []).slice(0, 12);
-        const engs = posts.map(x => (num(x.likesCount, x.likes) || 0) + (num(x.commentsCount, x.comments) || 0)).filter(n => n >= 0);
-        const er = followers && engs.length ? (engs.reduce((t, n) => t + n, 0) / engs.length) / followers * 100 : null;
-        return json({ platform, handle, followers, er: er === null ? null : Math.round(er * 100) / 100, posts: num(it.postsCount), fullName: it.fullName || '', private: !!it.private, sample: posts.length, source: 'apify:instagram-profile-scraper' });
+        return json(this.parseInstagramProfile(it, handle));
       }
       const items = await this.apify('clockworks~tiktok-profile-scraper', { profiles: [handle], resultsPerPage: 12, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false });
-      const first = items.find(x => x && x.authorMeta) || items.find(x => x && !x.error) || null;
-      if (!first) return fail('not_found', 'TikTok profile @' + handle + ' was not found or has no public videos.', 404);
-      const am = first.authorMeta || first.author || first;
-      const followers = num(am.fans, am.followers, am.followerCount, (am.stats || {}).followerCount);
-      const vids = items.filter(x => x && (x.playCount !== undefined || x.diggCount !== undefined)).slice(0, 12);
-      const engs = vids.map(x => (num(x.diggCount) || 0) + (num(x.commentCount) || 0) + (num(x.shareCount) || 0));
-      const er = followers && engs.length ? (engs.reduce((t, n) => t + n, 0) / engs.length) / followers * 100 : null;
-      return json({ platform, handle, followers, er: er === null ? null : Math.round(er * 100) / 100, posts: num(am.video), fullName: am.nickName || am.name || '', sample: vids.length, source: 'apify:tiktok-profile-scraper' });
-    } catch (e) { return fail(e.code || 'upstream_error', 'Could not fetch the profile: ' + (e.message || e), 502); }
+      if (STUB) return json(stubProfile(platform, handle));
+      const pr = this.parseTiktokProfile(items, handle);
+      if (!pr) return fail('not_found', 'TikTok profile @' + handle + ' was not found or has no public videos.', 404);
+      return json(pr);
+    } catch (e) { return fail(e.code || 'upstream_error', 'Could not fetch the profile: ' + (e.message || e), e.code === 'rate_limited' ? 429 : 502); }
   }
   async socialPost(req, user) {
     const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
@@ -572,31 +687,36 @@ export class Workspace extends DurableObject {
     let u; try { u = new URL(String(b.url || '')); } catch (e) { return fail('bad_request', 'Enter the post link.'); }
     const platform = /tiktok\.com$/i.test(u.hostname) ? 'tiktok' : /instagram\.com$/i.test(u.hostname) ? 'instagram' : null;
     if (!platform) return fail('bad_request', 'Only Instagram and TikTok links are supported.');
-    if (this.env.STUB_PROVIDERS === '1') return json(stubPost(platform));
-    if (!this.env.APIFY_TOKEN) return fail('not_configured', 'Add the APIFY_TOKEN secret to read post metrics automatically.', 501);
+    const STUB = this.env.STUB_PROVIDERS === '1';
+    if (!STUB && !this.env.APIFY_TOKEN) return fail('not_configured', 'Add the APIFY_TOKEN secret to read post metrics automatically.', 501);
     if (!this.throttle('apify:' + user.id, 300, 60 * 60000)) return fail('rate_limited', 'Lookup limit reached for this hour.', 429);
     try {
       if (platform === 'instagram') {
         const items = await this.apify('apify~instagram-scraper', { directUrls: [u.href], resultsType: 'posts', resultsLimit: 1, addParentData: false });
+        if (STUB) return json(stubPost(platform));
         const it = items[0]; if (!it || it.error) return fail('not_found', 'The post could not be read (it may be private or removed).', 404);
         return json({ platform, metrics: { views: num(it.videoPlayCount, it.videoViewCount, it.igPlayCount), likes: num(it.likesCount), comments: num(it.commentsCount), shares: null, saves: null }, postedAt: it.timestamp || null, owner: it.ownerUsername || '', source: 'apify:instagram-scraper' });
       }
       const items = await this.apify('clockworks~tiktok-scraper', { postURLs: [u.href], resultsPerPage: 1, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false });
+      if (STUB) return json(stubPost(platform));
       const it = items[0]; if (!it) return fail('not_found', 'The video could not be read (it may be private or removed).', 404);
       return json({ platform, metrics: { views: num(it.playCount), likes: num(it.diggCount), comments: num(it.commentCount), shares: num(it.shareCount), saves: num(it.collectCount) }, postedAt: it.createTimeISO || null, owner: (it.authorMeta || {}).name || '', source: 'apify:tiktok-scraper' });
-    } catch (e) { return fail(e.code || 'upstream_error', 'Could not read the post: ' + (e.message || e), 502); }
+    } catch (e) { return fail(e.code || 'upstream_error', 'Could not read the post: ' + (e.message || e), e.code === 'rate_limited' ? 429 : 502); }
   }
   async capture(req, user) {
     const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     let u; try { u = new URL(String(b.url || '')); } catch (e) { return fail('bad_request', 'Enter the post link.'); }
     if (!/(^|\.)(instagram|tiktok)\.com$/i.test(u.hostname)) return fail('bad_request', 'Only Instagram and TikTok links can be captured.');
-    if (this.env.STUB_PROVIDERS === '1') return new Response(b64d(STUB_PNG), { headers: { 'content-type': 'image/png', ...SECURITY_HEADERS } });
-    if (!this.env.BROWSER) return fail('not_configured', 'Screenshots need the Browser Rendering binding.', 501);
+    const STUB = this.env.STUB_PROVIDERS === '1';
+    if (!STUB && !this.env.BROWSER) return fail('not_configured', 'Screenshots need the Browser Rendering binding.', 501);
     if (!this.throttle('cap:' + user.id, 30, 60 * 60000)) return fail('rate_limited', 'Screenshot limit reached for this hour.', 429);
     let browser;
+    // Starting a browser fails when the account's concurrent-browser or daily-time limit is hit; wait and try once more.
+    const launch = await this.withRetry('screenshot', { tries: 2, base: 4000 }, async () => { if (!STUB) browser = await puppeteer.launch(this.env.BROWSER); return { status: 200 }; });
+    if (!launch.ok) { const msg = launch.error || upstreamMsg(launch, 'Browser error'); this.noteError('capture', msg); return fail(/limit|429/i.test(msg) ? 'rate_limited' : 'upstream_error', 'The screenshot service is busy or over its limit (' + msg + '). Try again in a minute, or upload a screenshot yourself.', 503); }
+    if (STUB) return new Response(b64d(STUB_PNG), { headers: { 'content-type': 'image/png', ...SECURITY_HEADERS } });
     try {
-      browser = await puppeteer.launch(this.env.BROWSER);
       const page = await browser.newPage();
       await page.setViewport({ width: 1200, height: 1500, deviceScaleFactor: 1 });
       await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36');
@@ -628,12 +748,14 @@ export class Workspace extends DurableObject {
       const custAdmin = acc.type === 'customer' && inv.accountType === 'customer' && acc.accounts[inv.accountId] === 'admin';
       if (!admin && !custAdmin) return fail('not_granted', 'Only admins can send invitations.', 403);
     }
-    if (this.env.STUB_PROVIDERS === '1') { this.lastEmail = { to, subject: b.subject, body: b.body }; return json({ ok: true, id: 'stub', stub: true }); }
-    if (!this.env.RESEND_API_KEY) return fail('not_configured', 'Add the RESEND_API_KEY secret to send email. Until then, copy the invitation and send it yourself.', 501);
-    const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { authorization: 'Bearer ' + this.env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: this.env.MAIL_FROM || 'Partner Hub <onboarding@resend.dev>', to, subject: String(b.subject).slice(0, 200), text: String(b.body).slice(0, 10000) }) });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) return fail('tool_error', (j && (j.message || (j.error && j.error.message))) || ('Email service error ' + res.status), 502);
-    return json({ ok: true, id: j.id });
+    const STUB = this.env.STUB_PROVIDERS === '1';
+    if (!STUB && !this.env.RESEND_API_KEY) return fail('not_configured', 'Add the RESEND_API_KEY secret to send email. Until then, copy the invitation and send it yourself.', 501);
+    const r = await this.upstream('email', 'https://api.resend.com/emails',
+      { method: 'POST', headers: { authorization: 'Bearer ' + this.env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: this.env.MAIL_FROM || 'Partner Hub <onboarding@resend.dev>', to, subject: String(b.subject).slice(0, 200), text: String(b.body).slice(0, 10000) }) },
+      { tries: 3, timeout: 15000, retryTimeout: true, base: 1200, stub: () => ({ id: 'stub' }) });
+    if (!r.ok) { const msg = r.timeout ? 'The email service did not answer in time.' : upstreamMsg(r, 'Email service error'); this.noteError('email', msg); return fail('tool_error', msg, 502); }
+    if (STUB) { this.lastEmail = { to, subject: b.subject, body: b.body }; return json({ ok: true, id: 'stub', stub: true }); }
+    return json({ ok: true, id: (r.body || {}).id });
   }
 }
 

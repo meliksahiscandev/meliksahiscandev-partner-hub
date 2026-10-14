@@ -417,7 +417,7 @@ def main():
             check(abs(sum(r['net'] for r in rows_) - 1250000) < 0.01, 'schedule sums exactly to budget')
             check(rows_[0]['dueDate'] == '2026-04-01', 'due date = invoice date + 60 days (%s)' % rows_[0]['dueDate'])
             btn('Invoiced').first.click(); toast_wait('Marked as invoiced')
-            page.wait_for_selector('text=Overdue')
+            page.wait_for_selector('.badge:has-text("Overdue")'); page.wait_for_timeout(300)
             check(page.locator('.badge:has-text("Overdue")').count() == 1, 'past-due invoiced line flagged overdue')
             btn('Collected').first.click(); toast_wait('Marked as collected')
             check(len(docs('finance')[PID].get('history', {})) >= 4, 'finance history logged in owner-only area')

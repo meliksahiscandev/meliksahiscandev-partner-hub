@@ -1,0 +1,28 @@
+# Live provider probe: real Claude, Apify and Resend calls with the repository secrets, plus the live /api/health.
+# Numbers only (success, latency, plan usage); no email is sent; costs a few cents per run.
+# Runs every Monday, on demand, and on a pull request when the label "probe" is added.
+name: Provider probe
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+  pull_request:
+    types: [labeled]
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: ${{ github.event_name != 'pull_request' || github.event.label.name == 'probe' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Probe providers
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: node test/probe.mjs
