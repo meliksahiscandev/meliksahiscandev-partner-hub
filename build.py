@@ -68,7 +68,7 @@ body{{margin:0}} img{{max-width:100%}} [hidden]{{display:none!important}}
 '''
 (pub / 'index.html').write_text(hosted)
 (pub / 'login.html').write_text((root / 'hosted' / 'client' / 'login.html').read_text())
-(pub / 'robots.txt').write_text('User-agent: *\nDisallow: /\n')
+(pub / 'robots.txt').write_text('User-agent: *\nAllow: /api/health\nDisallow: /\n')
 print(pub / 'index.html', len(hosted), 'version', version)
 (root / 'app.check.js').write_text("(function(){'use strict';\n" + js + "\n})();\n")
 print(out, len(page))

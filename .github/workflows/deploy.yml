@@ -130,4 +130,8 @@ jobs:
           echo "- Address: $URL" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "- Health: \`$(cat health.json 2>/dev/null || echo 'no answer')\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "::notice title=Partner Hub::Deployed $VERSION to $URL"
+          LOGIN=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login")
+          ME=$(curl -s -o /dev/null -w "%{http_code}" "$URL/api/me")
+          echo "- Sign-in page: HTTP $LOGIN, /api/me without session: HTTP $ME" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Partner Hub::Deployed $VERSION to $URL — login $LOGIN, api/me $ME, health $(cat health.json 2>/dev/null | head -c 600)"
+          [ "$LOGIN" = "200" ] && [ "$ME" = "401" ] || { echo "::error title=Smoke test::Unexpected answers after deploy (login $LOGIN, api/me $ME)"; exit 1; }
