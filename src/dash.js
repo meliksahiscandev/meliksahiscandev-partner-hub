@@ -24,7 +24,13 @@ function groupCreators(infs) {
   });
 }
 function weekOf(dateStr) { if (!dateStr) return null; const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00'); if (isNaN(d)) return null; const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return ymd(d); }
-function dashData(s, prs) {
+// Every visible project a creator took part in (approved in its masterfile or given content), matched by handle.
+function participationIndex(s, allPrs) {
+  const idx = {};
+  for (const pr of allPrs) for (const inf of infsOf(s, pr.id)) if (inf.state === 'approved' || asgList(inf).length) for (const k of creatorKeys(inf)) (idx[k] = idx[k] || new Set()).add(pr.id);
+  return idx;
+}
+function dashData(s, prs, allPrs) {
   const pieces = [], perProject = [];
   const fun = { target: 0, assigned: 0, approved: 0, live: 0, data: 0 };
   const allRows = [];
@@ -48,6 +54,8 @@ function dashData(s, prs) {
   for (const c of creators) Object.assign(c, { live: 0, withData: 0, views: 0, reach: 0, eng: 0, base: 0, engB: 0 });
   for (const x of pieces) { const c = byKey[x.inf.id]; if (!c) continue; c.live++; if (x.m.has) { c.withData++; c.views += x.m.views || 0; c.reach += x.m.reach || 0; c.eng += x.m.eng; c.base += x.m.base || 0; c.engB += x.m.base ? x.m.eng : 0; } }
   creators.forEach(c => { c.er = c.base ? c.engB / c.base * 100 : null; });
+  const pidx = participationIndex(s, allPrs || prs); const order = (allPrs || prs).map(x => x.id);
+  creators.forEach(c => { const ids = new Set(); c.rows.forEach(r => { ids.add(r.projectId); creatorKeys(r).forEach(k => (pidx[k] || []).forEach(id => ids.add(id))); }); c.projectIds = order.filter(id => ids.has(id)); c.projects = c.projectIds.length; });
   const group = (keyFn, labelFn) => { const o = {}; withData.forEach(x => { const k = keyFn(x); const g = o[k] = o[k] || { key: k, label: labelFn(x), views: 0, reach: 0, eng: 0, base: 0, engB: 0, n: 0 }; g.views += x.m.views || 0; g.reach += x.m.reach || 0; g.eng += x.m.eng; g.base += x.m.base || 0; g.engB += x.m.base ? x.m.eng : 0; g.n++; }); return Object.values(o).map(g => Object.assign(g, { er: g.base ? g.engB / g.base * 100 : 0 })).sort((a, b) => b.views - a.views); };
   const weeks = {}; pieces.forEach(x => { const w = weekOf(x.a.publish.postedDate || x.a.publish.at); if (!w) return; const g = weeks[w] = weeks[w] || { week: w, posted: 0, views: 0 }; g.posted++; g.views += x.m.views || 0; });
   const profileErs = creators.map(c => c.profileEr).filter(v => v !== null);
@@ -85,7 +93,9 @@ function DashboardsPage({ id }) {
   const { s, role, go } = useCtx();
   const sc = dashScope(s, role, id);
   const [sort, setSort] = useState(['views', 'desc']);
-  const d = useMemo(() => dashData(s, sc.prs), [s.projects, s.influencers, s.partnerships, id, role.status]);
+  const d = useMemo(() => dashData(s, sc.prs, sc.all), [s.projects, s.influencers, s.partnerships, id, role.status]);
+  const prById = {}; sc.all.forEach(x => { prById[x.id] = x; });
+  const multiPart = sc.parts.length > 1;
   const value = sc.kind === 'project' ? 'j-' + sc.prs[0].id : sc.kind === 'partnership' ? id : 'all';
   const setScope = v => go({ view: 'dashboards', id: v === 'all' ? null : v });
   if (!sc.all.length) return html`<${Fragment}><${PageHead} eyebrow="Analytics" title="Dashboards"/><${Empty} title="No projects yet">${role.canAgency ? 'Create a project under a partnership; its creators, delivery and performance appear here.' : 'Projects the agency runs for you appear here with their results.'}<//><//>`;
@@ -95,8 +105,8 @@ function DashboardsPage({ id }) {
   const th = (k, l, r) => html`<th className=${r ? 'r' : ''}><button className="th-sort" aria-sort=${sk === k ? (sd === 'desc' ? 'descending' : 'ascending') : 'none'} onClick=${() => setSort(sk === k ? [k, sd === 'desc' ? 'asc' : 'desc'] : [k, k === 'name' ? 'asc' : 'desc'])}>${l}${sk === k ? (sd === 'desc' ? ' ↓' : ' ↑') : ''}</button></th>`;
   const exportCsv = async () => {
     const q = v => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
-    const lines = [['Influencer', 'Instagram', 'TikTok', 'Tier', 'Followers', 'Projects', 'Live pieces', 'Views', 'Reach', 'Engagements', 'ER %', 'Profile ER %'].map(q).join(',')];
-    creators.forEach(c => lines.push([c.name, (c.plats.instagram || {}).handle || '', (c.plats.tiktok || {}).handle || '', TIERS[c.tier] ? TIERS[c.tier].label : '', c.followers, c.projects, c.live, c.views, c.reach, c.eng, c.er === null ? '' : c.er.toFixed(2), c.profileEr === null ? '' : c.profileEr.toFixed(2)].map(q).join(',')));
+    const lines = [['Influencer', 'Instagram', 'TikTok', 'Tier', 'Followers', 'Projects', 'Project names', 'Live pieces', 'Views', 'Reach', 'Engagements', 'ER %', 'Profile ER %'].map(q).join(',')];
+    creators.forEach(c => lines.push([c.name, (c.plats.instagram || {}).handle || '', (c.plats.tiktok || {}).handle || '', TIERS[c.tier] ? TIERS[c.tier].label : '', c.followers, c.projects, c.projectIds.map(pid => { const x = prById[pid]; const p = x && partnerOf(s, x.partnershipId); return x ? (multiPart && p ? p.name + ' / ' : '') + x.name : ''; }).filter(Boolean).join('; '), c.live, c.views, c.reach, c.eng, c.er === null ? '' : c.er.toFixed(2), c.profileEr === null ? '' : c.profileEr.toFixed(2)].map(q).join(',')));
     lines.push(''); lines.push(['Project', 'Partnership', 'Approved creators', 'Delivered', 'Target', 'Views', 'Reach', 'Engagements', 'ER %'].map(q).join(','));
     d.perProject.forEach(x => lines.push([x.pr.name, x.p ? x.p.name : '', x.approved, x.metrics.delivered, x.metrics.totalQty, x.views, x.reach, x.eng, x.er === null ? '' : x.er.toFixed(2)].map(q).join(',')));
     const ok = await act(() => CAP.downloads.save({ filename: slug(sc.label) + '_dashboard_' + fileStamp() + '.csv', data: '﻿' + lines.join('\n') }));
@@ -139,9 +149,9 @@ function DashboardsPage({ id }) {
         <${Card} title="Views by platform"><${HBars} rows=${d.byPlatform.map(o => ({ key: o.key, label: o.label + ' (' + o.n + ')', value: o.views }))} fmt=${fmtK}/><//>
         <${Card} title="Engagement rate by creator type"><${HBars} rows=${d.byTier.map(o => ({ key: o.key, label: o.label + ' (' + o.n + ')', value: o.er }))} fmt=${fmtPct}/><//>
       </div>
-      <${Card} title="Influencers" sub=${plural(d.unique, 'unique creator') + '. The same person in several projects is counted once (matched by handle).'} flush=${true}>
-        <div className="tbl-wrap"><table className="tbl" id="dash-creators"><thead><tr><th>#</th>${th('name', 'Influencer')}<th>Handles</th><th>Type</th>${th('followers', 'Followers', 1)}${sc.prs.length > 1 ? th('projects', 'Projects', 1) : null}${th('live', 'Live', 1)}${th('views', 'Views', 1)}${th('reach', 'Reach', 1)}${th('eng', 'Engagements', 1)}${th('er', 'ER', 1)}${th('profileEr', 'Profile ER', 1)}</tr></thead><tbody>
-          ${creators.length ? creators.map((c, i) => html`<tr key=${c.key}><td className="idx">${i + 1}</td><td><strong>${c.name}</strong></td><td><div className="row nw" style=${{ gap: '6px' }}>${Object.entries(c.plats).map(([k, p]) => html`<span key=${k} className="row nw" style=${{ gap: '4px' }}><${Plat} p=${k}/><span className="mono xs">@${p.handle}</span></span>`)}</div></td><td>${TIERS[c.tier] ? html`<span className="tag">${TIERS[c.tier].short}</span>` : '—'}</td><td className="r num">${fmtK(c.followers)}</td>${sc.prs.length > 1 ? html`<td className="r num">${c.projects}</td>` : null}<td className="r num">${c.live}</td><td className="r num">${c.withData ? fmtInt(c.views) : '—'}</td><td className="r num">${c.withData ? fmtInt(c.reach) : '—'}</td><td className="r num">${c.withData ? fmtInt(c.eng) : '—'}</td><td className="r num">${fmtPct(c.er)}</td><td className="r num">${fmtPct(c.profileEr)}</td></tr>`) : html`<tr><td colSpan="12" className="t3" style=${{ padding: '20px 12px' }}>No approved creators yet.</td></tr>`}
+      <${Card} title="Influencers" sub=${plural(d.unique, 'unique creator') + '. The same person in several projects is counted once (matched by handle). Projects lists every project they took part in' + (sc.kind === 'all' ? '' : '; those outside this view are dimmed') + '.'} flush=${true}>
+        <div className="tbl-wrap"><table className="tbl" id="dash-creators"><thead><tr><th>#</th>${th('name', 'Influencer')}${th('projects', 'Projects')}<th>Handles</th><th>Type</th>${th('followers', 'Followers', 1)}${th('live', 'Live', 1)}${th('views', 'Views', 1)}${th('reach', 'Reach', 1)}${th('eng', 'Engagements', 1)}${th('er', 'ER', 1)}${th('profileEr', 'Profile ER', 1)}</tr></thead><tbody>
+          ${creators.length ? creators.map((c, i) => html`<tr key=${c.key}><td className="idx">${i + 1}</td><td><strong>${c.name}</strong></td><td><div className="dash-proj">${c.projectIds.map(pid => { const x = prById[pid]; const p = x && partnerOf(s, x.partnershipId); return x ? html`<button key=${pid} className=${'tag' + (sc.prs.some(y => y.id === pid) ? '' : ' out')} title=${(p ? p.name + ' · ' : '') + x.name + ' — open its dashboard'} onClick=${() => setScope('j-' + pid)}>${multiPart && p ? html`<span className="t3">${p.name} · </span>` : null}${x.name}</button>` : null; })}</div></td><td><div className="row nw" style=${{ gap: '6px' }}>${Object.entries(c.plats).map(([k, p]) => html`<span key=${k} className="row nw" style=${{ gap: '4px' }}><${Plat} p=${k}/><span className="mono xs">@${p.handle}</span></span>`)}</div></td><td>${TIERS[c.tier] ? html`<span className="tag">${TIERS[c.tier].short}</span>` : '—'}</td><td className="r num">${fmtK(c.followers)}</td><td className="r num">${c.live}</td><td className="r num">${c.withData ? fmtInt(c.views) : '—'}</td><td className="r num">${c.withData ? fmtInt(c.reach) : '—'}</td><td className="r num">${c.withData ? fmtInt(c.eng) : '—'}</td><td className="r num">${fmtPct(c.er)}</td><td className="r num">${fmtPct(c.profileEr)}</td></tr>`) : html`<tr><td colSpan="12" className="t3" style=${{ padding: '20px 12px' }}>No approved creators yet.</td></tr>`}
         </tbody></table></div>
       <//>
       ${sc.prs.length > 1 ? html`<${Card} title="Projects" flush=${true}><div className="tbl-wrap"><table className="tbl" id="dash-projects"><thead><tr><th>Project</th><th>Partnership</th><th className="r">Creators</th><th className="r">Delivered</th><th className="r">Views</th><th className="r">Reach</th><th className="r">Engagements</th><th className="r">ER</th><th>Progress</th></tr></thead><tbody>

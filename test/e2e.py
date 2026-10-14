@@ -399,6 +399,7 @@ def main():
             check(page.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '3', 'dashboard: 3 unique influencers')
             check(page.locator('.kpi:has-text("Views") .v').first.inner_text() in ('241K', '241.0K'), 'dashboard: consolidated views match the project')
             check(page.locator('#dash-creators tbody tr').count() == 3, 'dashboard: creators table lists each influencer once')
+            check(page.locator('#dash-creators th:has-text("Projects")').count() == 1 and 'Summer Glow' in page.locator('#dash-creators tr:has-text("Elif Yilmaz") .dash-proj').inner_text(), 'dashboard: Projects column names the projects each influencer took part in')
             page.select_option('#dash-scope', 'j-' + PRID); page.wait_for_selector('button:has-text("Open project")')
             check(page.locator('.kpi:has-text("Engagement rate") .v').first.inner_text() == '4.85%', 'dashboard: project ER matches the performance tab')
             btn('Export CSV').click(); page.wait_for_timeout(400)

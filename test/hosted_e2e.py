@@ -367,6 +367,17 @@ def main():
             shot(A, 'h15_import')
             print('16. Admin and member access (agency and brand)', flush=True)
             IPR = [k for k, v in st['projects'].items() if v['name'] == 'Import Test'][0]
+            # The same creator (same Instagram handle) approved in a second project: the dashboard lists both projects.
+            r = api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/elifsecond', 'data': {'name': 'Elif Y.', 'partnershipId': PID, 'projectId': IPR, 'state': 'approved', 'order': 9, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': 'elif.yilmaz', 'followers': 48200, 'er': 5.1}}, 'createdAt': '2026-10-14T12:00:00.000Z'}})
+            check(r['status'] == 200, 'second-project row for the same creator stored')
+            nav(A, '#d.all'); A.wait_for_selector('#dash-creators tr:has-text("Elif") .dash-proj:has-text("Import Test")')
+            cell = A.locator('#dash-creators tr:has-text("Elif") .dash-proj').inner_text()
+            check('Summer Glow' in cell and 'Import Test' in cell and A.locator('#dash-creators tr:has-text("Elif")').count() == 1, 'dashboard Projects column: one row for the creator, both projects listed (%s)' % cell.replace('\n', ' '))
+            nav(A, '#d.j-' + PRID); A.wait_for_selector('button:has-text("Open project")')
+            check(A.locator('#dash-creators tr:has-text("Elif") .dash-proj .tag.out:has-text("Import Test")').count() == 1, 'project dashboard shows the other project dimmed')
+            A.locator('#dash-creators tr:has-text("Elif") .dash-proj .tag:has-text("Import Test")').click(); A.wait_for_function('() => location.hash === "#d.j-' + IPR + '"')
+            check(True, 'clicking a project tag opens that project\'s dashboard')
+            shot(A, 'h16a_dashboard_projects')
             ADA = [k for k, v in st['influencers'].items() if v['name'] == 'Ada Kaya' and not v.get('removed')][0]
             nav(A, '#team'); A.wait_for_selector('text=Agency team')
             btn(A, 'Invite members').click(); A.fill('#inv-emails', 'mira@gamesmedya.test')
