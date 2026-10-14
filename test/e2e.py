@@ -386,6 +386,16 @@ def main():
             er = page.locator('.kpi:has-text("Engagement rate") .v').first.inner_text()
             check(er == '4.85%', 'weighted ER = (5400+210+80+150)*2 / 241000 = 4.85%% (got %s)' % er)
             shot('13_performance')
+            nav('#d.all'); page.wait_for_selector('h1:has-text("Dashboards")')
+            check(page.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '3', 'dashboard: 3 unique influencers')
+            check(page.locator('.kpi:has-text("Views") .v').first.inner_text() in ('241K', '241.0K'), 'dashboard: consolidated views match the project')
+            check(page.locator('#dash-creators tbody tr').count() == 3, 'dashboard: creators table lists each influencer once')
+            page.select_option('#dash-scope', 'j-' + PRID); page.wait_for_selector('button:has-text("Open project")')
+            check(page.locator('.kpi:has-text("Engagement rate") .v').first.inner_text() == '4.85%', 'dashboard: project ER matches the performance tab')
+            btn('Export CSV').click(); page.wait_for_timeout(400)
+            dcsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("dashboard")).pop()')
+            check(dcsv and 'Elif Yilmaz' in dcsv['text'] and 'Summer Glow' in dcsv['text'], 'dashboard CSV export')
+            shot('13b_dashboard')
 
             # ============ 14. finance (owner-only) ============
             print('14. Finance', flush=True)

@@ -2,7 +2,7 @@ import pathlib
 root = pathlib.Path(__file__).parent
 src = root / 'src'
 css = (src / 'styles.css').read_text()
-js = '\n'.join((src / n).read_text() for n in ['core.js', 'ui.js', 'pages-a.js', 'pages-b.js'])
+js = '\n'.join((src / n).read_text() for n in ['core.js', 'ui.js', 'pages-a.js', 'dash.js', 'pages-b.js'])
 page = f'''<title>Games Medya Partner Hub</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">

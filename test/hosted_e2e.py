@@ -258,6 +258,13 @@ def main():
             nav(B, '#j.' + PRID + '.performance'); B.wait_for_selector('.kpi:has-text("Views")')
             check(B.locator('button:has-text("Refresh public metrics")').count() == 0, 'customer sees results but cannot refresh')
             shot(B, 'h09_customer_performance')
+            nav(A, '#d.all'); A.wait_for_selector('h1:has-text("Dashboards")')
+            check(A.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '2', 'dashboard: 2 unique influencers')
+            check(A.locator('.kpi:has-text("Views") .v').first.inner_text() not in ('—', '0'), 'dashboard: views consolidated (%s)' % A.locator('.kpi:has-text("Views") .v').first.inner_text())
+            nav(B, '#dashboards'); B.wait_for_selector('h1:has-text("Dashboards")')
+            check(B.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '2', 'customer sees the same dashboard for their projects')
+            check(B.locator('.mini-tag').count() == 0, 'no agency-internal markers on the customer dashboard')
+            shot(A, 'h09b_dashboard')
 
             print('10. Finance is owner-only on the server', flush=True)
             nav(A, '#p.' + PID + '.finance'); A.wait_for_selector('text=Start finance tracking')

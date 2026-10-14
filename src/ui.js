@@ -28,12 +28,12 @@ function Kpi({ l, v, s, cls, onClick }) { return onClick ? html`<button classNam
 
 const Ctx = React.createContext(null);
 const useCtx = () => React.useContext(Ctx);
-const VIEWS = ['home', 'partnerships', 'activity', 'files', 'team', 'finance', 'settings'];
+const VIEWS = ['home', 'partnerships', 'dashboards', 'activity', 'files', 'team', 'finance', 'settings'];
 function readHash() {
-  try { const h = (location.hash || '').slice(1); const parts = h.split('.'); if (parts[0] === 'p' && parts[1]) return { view: 'partnership', id: parts[1], tab: parts[2] }; if (parts[0] === 'j' && parts[1]) return { view: 'project', id: parts[1], tab: parts[2] }; if (VIEWS.includes(parts[0])) return { view: parts[0] }; } catch (e) { }
+  try { const h = (location.hash || '').slice(1); const parts = h.split('.'); if (parts[0] === 'p' && parts[1]) return { view: 'partnership', id: parts[1], tab: parts[2] }; if (parts[0] === 'j' && parts[1]) return { view: 'project', id: parts[1], tab: parts[2] }; if (parts[0] === 'd' && parts[1]) return { view: 'dashboards', id: parts[1] }; if (VIEWS.includes(parts[0])) return { view: parts[0] }; } catch (e) { }
   return { view: 'home' };
 }
-function writeHash(r) { try { const h = r.view === 'partnership' ? 'p.' + r.id + (r.tab ? '.' + r.tab : '') : r.view === 'project' ? 'j.' + r.id + (r.tab ? '.' + r.tab : '') : r.view === 'home' ? '' : r.view; history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch (e) { } }
+function writeHash(r) { try { const h = r.view === 'partnership' ? 'p.' + r.id + (r.tab ? '.' + r.tab : '') : r.view === 'project' ? 'j.' + r.id + (r.tab ? '.' + r.tab : '') : r.view === 'dashboards' && r.id ? 'd.' + r.id : r.view === 'home' ? '' : r.view; history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch (e) { } }
 
 /* ---------- modal & feedback ---------- */
 function Modal({ title, onClose, children, footer, wide }) {
@@ -118,6 +118,7 @@ function Router() {
   if (v === 'partnership') return html`<${PartnershipView} key=${route.id} id=${route.id} tab=${route.tab || 'overview'}/>`;
   if (v === 'project') return html`<${ProjectView} key=${route.id} id=${route.id} tab=${route.tab || 'masterfile'}/>`;
   if (v === 'partnerships') return html`<${PartnershipsPage}/>`;
+  if (v === 'dashboards') return html`<${DashboardsPage} key=${route.id || 'all'} id=${route.id || null}/>`;
   if (v === 'activity') return html`<${ActivityPage}/>`;
   if (v === 'files') return html`<${FilesPage}/>`;
   if (v === 'team' && role.isAgency) return html`<${TeamPage}/>`;
@@ -142,6 +143,7 @@ function Sidebar() {
       ${parts.length ? html`<div className="nav-sub">${parts.map(p => { const ms = msaState(p); const prs = projectsOf(s, p.id); return html`<div key=${p.id}>
         <button className=${'nav-btn' + (route.view === 'partnership' && route.id === p.id ? ' on' : '')} onClick=${() => go({ view: 'partnership', id: p.id })}><span className=${'ndot ' + (ms.pending.length || !ms.list.length ? 'crit' : 'ok')} title=${ms.pending.length || !ms.list.length ? 'Master agreement missing' : 'Master agreement uploaded'}></span><span className="t">${p.name}</span></button>
         ${activeP === p.id && prs.length ? html`<div className="nav-sub">${prs.map(pr => html`<button key=${pr.id} className=${'nav-btn' + (route.view === 'project' && route.id === pr.id ? ' on' : '')} onClick=${() => go({ view: 'project', id: pr.id })}><span className="t">${pr.name}</span></button>`)}</div>` : null}</div>`; })}</div>` : null}
+      ${nb('dashboards', 'Dashboards', 'chart')}
       <div className="nav-group">Operations</div>
       ${nb('activity', 'Activity log', 'pulse', s.outboxN ? html`<span className="cnt hot" title="Events waiting to sync">${s.outboxN}</span>` : null)}
       ${nb('files', 'Files & storage', 'db')}
@@ -160,7 +162,7 @@ function Sidebar() {
 function Topbar({ onMenu }) {
   const { s, role, route, go } = useCtx();
   const crumbs = [];
-  const label = { home: 'Overview', partnerships: 'Partnerships', activity: 'Activity log', files: 'Files & storage', team: 'Team & access', finance: 'Finance', settings: 'Settings & backup' };
+  const label = { home: 'Overview', partnerships: 'Partnerships', dashboards: 'Dashboards', activity: 'Activity log', files: 'Files & storage', team: 'Team & access', finance: 'Finance', settings: 'Settings & backup' };
   if (route.view === 'partnership' || route.view === 'project') {
     const pr = route.view === 'project' ? s.projects.find(x => x.id === route.id) : null;
     const p = partnerOf(s, pr ? pr.partnershipId : route.id);
