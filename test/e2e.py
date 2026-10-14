@@ -329,11 +329,15 @@ def main():
             check(not any('TikTok' in o for o in tt_opts), 'TikTok content not offered to an Instagram-only creator')
             nav('#j.' + PRID + '.review'); page.wait_for_selector('text=Submit preview')
             for _ in range(4):
+                page.wait_for_function('n => document.querySelectorAll("tbody button").length && Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Submit preview")).length === n', arg=4 - _, timeout=8000)
                 page.locator('button:has-text("Submit preview")').first.click(); page.fill('#pv-url', 'https://drive.google.com/file/d/abc%d' % _); btn('Send for approval').click(); toast_wait('Preview sent')
+                page.wait_for_selector('.modal', state='detached', timeout=8000)
             check(page.locator('button:has-text("Submit preview")').count() == 0, 'all four previews submitted')
             login('can'); nav('#j.' + PRID + '.review'); page.wait_for_selector('text=Open preview')
             for _ in range(3):
-                page.locator('tbody button:has-text("Approve")').first.click(); toast_wait('Content approved'); page.wait_for_timeout(300)
+                n_ = page.locator('tbody button:has-text("Approve")').count()
+                page.locator('tbody button:has-text("Approve")').first.click(); toast_wait('Content approved')
+                page.wait_for_function('n => Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Approve")).length === n', arg=n_ - 1, timeout=8000)
             page.locator('tbody button:has-text("Comment")').first.click(); page.fill('textarea[aria-label="What should change in this content?"]', 'Logo too small'); btn('Request changes').click(); page.wait_for_selector('text=Changes requested')
             login('owner'); nav('#j.' + PRID + '.review'); btn('Submit revision').click(); page.fill('#pv-url', 'https://drive.google.com/file/d/rev2'); btn('Send for approval').click(); toast_wait('Preview sent')
             login('can'); nav('#j.' + PRID + '.review'); page.locator('tbody button:has-text("Approve")').first.click(); toast_wait('Content approved')

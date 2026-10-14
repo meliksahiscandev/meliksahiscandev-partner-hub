@@ -218,11 +218,14 @@ def main():
             print('8. Preview review, submission with automatic screenshot', flush=True)
             nav(A, '#j.' + PRID + '.review'); A.wait_for_selector('text=Submit preview')
             for i in range(3):
+                A.wait_for_function('n => Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Submit preview")).length === n', arg=3 - i, timeout=10000)
                 A.locator('button:has-text("Submit preview")').first.click(); A.fill('#pv-url', 'https://drive.google.com/file/d/x%d' % i); btn(A, 'Send for approval').click(); toast(A, 'Preview sent')
-                A.wait_for_timeout(300)
+                A.wait_for_selector('.modal', state='detached', timeout=10000)
             nav(B, '#j.' + PRID + '.review'); B.wait_for_selector('text=Open preview')
-            for _ in range(3):
-                B.locator('tbody button:has-text("Approve")').first.click(); toast(B, 'Content approved'); B.wait_for_timeout(400)
+            B.wait_for_function('() => Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Approve")).length === 3', timeout=10000)
+            for k in range(3):
+                B.locator('tbody button:has-text("Approve")').first.click(); toast(B, 'Content approved')
+                B.wait_for_function('n => Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Approve")).length === n', arg=2 - k, timeout=10000)
             nav(A, '#j.' + PRID + '.submission'); A.wait_for_selector('button:has-text("Content submitted")')
             A.locator('tr:has-text("Elif Yilmaz") button:has-text("Content submitted")').first.click()
             A.fill('#pub-url', 'https://www.instagram.com/reel/abc1/')
