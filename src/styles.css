@@ -346,3 +346,8 @@ pre.inv{white-space:pre-wrap;font-family:var(--f-mono);font-size:12px;background
 .mini-tag{display:inline-flex;align-items:center;height:16px;padding:0 5px;border-radius:4px;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line-2);color:var(--text-3);background:var(--surface);line-height:1;cursor:default;white-space:nowrap}
 .mini-tag.ok{border-color:color-mix(in srgb,var(--ok) 35%,transparent);color:var(--ok);background:var(--ok-soft)}
 .mini-tag.warn{border-color:color-mix(in srgb,var(--warn) 35%,transparent);color:var(--warn);background:var(--warn-soft)}
+.del-opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:var(--surface)}
+.del-opt > span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.del-opt input{margin-top:3px}
+.del-opt.on{border-color:var(--crit);background:var(--crit-soft)}
+.del-opt.off{opacity:.55;cursor:not-allowed}

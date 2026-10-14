@@ -865,7 +865,7 @@ function PasswordModal() {
     <label className="field"><span>Repeat new password</span><input className="input" type="password" id="pw-again" autoComplete="new-password" value=${again} onChange=${e => setAgain(e.target.value)} onKeyDown=${e => { if (e.key === 'Enter') go(); }}/></label>
   <//>`;
 }
-const MODALS = { password: PasswordModal, confirm: ConfirmModal, image: ImageModal, newPartnership: NewPartnershipModal, rename: RenameModal, project: ProjectModal, influencer: InfluencerModal, preview: PreviewModal, publish: PublishModal, perf: PerfModal, finRow: FinRowModal, finSchedule: FinScheduleModal, invite: InviteModal, inviteResult: InviteResultModal, restore: RestoreModal };
+const MODALS = { password: PasswordModal, deletePartnership: DeletePartnershipModal, confirm: ConfirmModal, image: ImageModal, newPartnership: NewPartnershipModal, rename: RenameModal, project: ProjectModal, influencer: InfluencerModal, preview: PreviewModal, publish: PublishModal, perf: PerfModal, finRow: FinRowModal, finSchedule: FinScheduleModal, invite: InviteModal, inviteResult: InviteResultModal, restore: RestoreModal };
 function ModalHost({ modal }) { if (!modal) return null; const M = MODALS[modal.type]; return M ? html`<${M} ...${modal.props}/>` : null; }
 
 /* ===================== start ===================== */

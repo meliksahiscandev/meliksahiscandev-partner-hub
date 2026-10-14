@@ -55,13 +55,14 @@ function Overview() {
   <//>`;
 }
 function PartnershipTable({ parts }) {
-  const { s, go } = useCtx();
-  return html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Partnership</th><th>Master agreement</th><th>Brands</th><th className="r">Projects</th><th>Progress</th><th className="r">Overall</th></tr></thead><tbody>
+  const { s, go, role, openModal } = useCtx();
+  const canDel = role.isAdmin;
+  return html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Partnership</th><th>Master agreement</th><th>Brands</th><th className="r">Projects</th><th>Progress</th><th className="r">Overall</th>${canDel ? html`<th className="r"><span className="sr">Actions</span></th>` : null}</tr></thead><tbody>
     ${parts.map(p => { const ms = msaState(p); const prs = projectsOf(s, p.id); const metrics = prs.map(pr => projectMetrics(pr, infsOf(s, pr.id))); const avg = metrics.length ? metrics.reduce((t, m) => t + m.overall, 0) / metrics.length : 0; const brands = ms.list.flatMap(m => brandList(m)); return html`<tr key=${p.id} className="click" onClick=${() => go({ view: 'partnership', id: p.id })}>
       <td><div className="cs"><strong>${p.name}</strong>${p.demo ? html`<span className="xs t3">Example data</span>` : null}</div></td>
       <td>${!ms.list.length ? html`<${Badge} cls="crit">Missing<//>` : ms.pending.length ? html`<${Badge} cls="crit">To be delivered<//>` : html`<${Badge} cls="ok">Uploaded<//>`}</td>
       <td><div className="row" style=${{ gap: '4px' }}>${brands.slice(0, 4).map(b => html`<span key=${b.id} className="tag">${b.name}</span>`)}${brands.length > 4 ? html`<span className="xs t3">+${brands.length - 4}</span>` : null}</div></td>
-      <td className="r num">${prs.length}</td><td style=${{ minWidth: '120px' }}>${metrics.length ? html`<div className="bar"><i style=${{ width: (avg * 100) + '%' }}></i></div>` : html`<span className="t3 small">No projects</span>`}</td><td className="r num mono">${metrics.length ? Math.round(avg * 100) + '%' : '—'}</td></tr>`; })}
+      <td className="r num">${prs.length}</td><td style=${{ minWidth: '120px' }}>${metrics.length ? html`<div className="bar"><i style=${{ width: (avg * 100) + '%' }}></i></div>` : html`<span className="t3 small">No projects</span>`}</td><td className="r num mono">${metrics.length ? Math.round(avg * 100) + '%' : '—'}</td>${canDel ? html`<td className="r"><button className="icon-btn" aria-label=${'Delete ' + p.name} title="Delete partnership" onClick=${e => { e.stopPropagation(); openModal('deletePartnership', { p }); }}><${Icon} n="trash" s=${15}/></button></td>` : null}</tr>`; })}
   </tbody></table></div>`;
 }
 function PartnershipsPage() {
@@ -87,10 +88,33 @@ function PartnershipView({ id, tab }) {
   return html`<${Fragment}>
     <${PageHead} eyebrow=${'Customer account' + (p.demo ? ' · example data' : '')} title=${p.name}
       meta=${html`<span className="t3 small">Created ${fmtDate(p.createdAt)}</span>${myRole ? html`<${Badge} cls="primary">${CUSTOMER_ROLES[myRole].label}<//>` : null}`}
-      actions=${role.canAgency ? html`${role.isAdmin ? html`<button className="btn btn-ghost" onClick=${() => openModal('confirm', { title: 'Move ' + p.name + ' to trash?', body: 'The partnership and its projects are hidden from everyone. Files, approvals and logs are kept, and an admin can restore it from Files & storage → Trash.', confirmLabel: 'Move to trash', danger: true, onConfirm: async () => { await trashPartnership(p); go({ view: 'partnerships' }); } })}><${Icon} n="archive" s=${15}/>Move to trash</button>` : null}<button className="btn" onClick=${() => openModal('rename', { kind: 'partnership', item: p })}><${Icon} n="edit" s=${15}/>Rename</button><button className="btn btn-primary" onClick=${() => openModal('project', { partnershipId: p.id })}><${Icon} n="plus" s=${15}/>New project</button>` : null}/>
+      actions=${role.canAgency ? html`${role.isAdmin ? html`<button className="btn btn-ghost" id="p-delete" onClick=${() => openModal('deletePartnership', { p })}><${Icon} n="trash" s=${15}/>Delete partnership</button>` : null}<button className="btn" onClick=${() => openModal('rename', { kind: 'partnership', item: p })}><${Icon} n="edit" s=${15}/>Rename</button><button className="btn btn-primary" onClick=${() => openModal('project', { partnershipId: p.id })}><${Icon} n="plus" s=${15}/>New project</button>` : null}/>
     <${MsaBanner} p=${p}/>
     <${Tabs} tabs=${tabs} value=${cur} onChange=${t => go({ view: 'partnership', id: p.id, tab: t })}/>
     ${cur === 'overview' ? html`<${PartnershipOverview} p=${p}/>` : cur === 'agreements' ? html`<${Agreements} p=${p}/>` : cur === 'projects' ? html`<${ProjectList} p=${p}/>` : cur === 'files' ? html`<${PartnershipFiles} p=${p}/>` : cur === 'members' ? html`<${MembersPanel} type="customer" accountId=${p.id}/>` : cur === 'finance' ? html`<${FinanceTab} p=${p}/>` : html`<${Card} title="Activity" sub=${'Everything that happened in ' + p.name} flush=${true}><${ActivityFeed} filter=${{ pid: p.id }} limit=${200} more=${true}/><//>`}
+  <//>`;
+}
+function DeletePartnershipModal({ p }) {
+  const { s, role, go, closeModal } = useCtx();
+  const [mode, setMode] = useState('trash'); const [typed, setTyped] = useState(''); const [busy, setBusy] = useState(false);
+  const prs = projectsOf(s, p.id), files = filesOf(s, p.id);
+  const members = invitesFor(s, 'customer', p.id).filter(i => i.status === 'accepted' || i.status === 'pending');
+  const purge = mode === 'purge';
+  const blocked = purge && typed.trim() !== p.name;
+  const run = async () => {
+    setBusy(true);
+    const ok = await act(() => purge ? purgePartnership(p) : trashPartnership(p), purge ? p.name + ' deleted permanently' : p.name + ' moved to trash');
+    if (ok === false) { setBusy(false); return; }
+    go({ view: 'partnerships' });
+  };
+  const opt = (k, title, desc, disabled) => html`<label className=${'del-opt' + (mode === k ? ' on' : '') + (disabled ? ' off' : '')}><input type="radio" name="del-mode" checked=${mode === k} disabled=${disabled} onChange=${() => setMode(k)}/><span><strong className="small">${title}</strong><span className="small t3">${desc}</span></span></label>`;
+  return html`<${Modal} title=${'Delete ' + p.name} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-danger" id="del-confirm" disabled=${busy || blocked} onClick=${run}>${busy ? html`<${Spin}/> Working…` : purge ? 'Delete permanently' : 'Move to trash'}</button><//>`}>
+    <p className="t2">${plural(prs.length, 'project')}, ${plural(files.length, 'file')} and ${plural(members.length, 'customer member')}. Customer members lose access as soon as you confirm.</p>
+    <div className="stack s8">
+      ${opt('trash', 'Move to trash', 'Hidden from everyone, including the customer. Projects, files, approvals and logs are kept; an admin can restore it from Files & storage → Trash.', false)}
+      ${opt('purge', 'Delete permanently', role.isOwner ? 'Removes projects, masterfiles, approvals, stored files and finance records. The activity log keeps a record. This cannot be undone.' : 'Only the workspace owner can delete permanently.', !role.isOwner)}
+    </div>
+    ${purge ? html`<label className="field"><span>Type <span className="mono">${p.name}</span> to confirm</span><input className="input" id="del-type" value=${typed} onChange=${e => setTyped(e.target.value)} autoComplete="off"/></label>` : null}
   <//>`;
 }
 function MsaBanner({ p }) {
