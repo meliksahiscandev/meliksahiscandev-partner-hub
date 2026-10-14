@@ -118,7 +118,7 @@ function Router() {
   if (v === 'partnership') return html`<${PartnershipView} key=${route.id} id=${route.id} tab=${route.tab || 'overview'}/>`;
   if (v === 'project') return html`<${ProjectView} key=${route.id} id=${route.id} tab=${route.tab || 'masterfile'}/>`;
   if (v === 'partnerships') return html`<${PartnershipsPage}/>`;
-  if (v === 'dashboards') return html`<${DashboardsPage} key=${route.id || 'all'} id=${route.id || null}/>`;
+  if (v === 'dashboards') return route.id && route.id.indexOf('i-') === 0 ? html`<${CreatorDashboard} key=${route.id} infId=${route.id.slice(2)}/>` : html`<${DashboardsPage} key=${route.id || 'all'} id=${route.id || null}/>`;
   if (v === 'activity') return html`<${ActivityPage}/>`;
   if (v === 'files') return html`<${FilesPage}/>`;
   if (v === 'team' && role.isAdmin) return html`<${TeamPage}/>`;

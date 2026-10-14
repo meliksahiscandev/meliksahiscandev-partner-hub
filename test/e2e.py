@@ -405,6 +405,15 @@ def main():
             btn('Export CSV').click(); page.wait_for_timeout(400)
             dcsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("dashboard")).pop()')
             check(dcsv and 'Elif Yilmaz' in dcsv['text'] and 'Summer Glow' in dcsv['text'], 'dashboard CSV export')
+            page.locator('#dash-creators button.lnk:has-text("Elif Yilmaz")').click(); page.wait_for_selector('#creator-dash')
+            check(page.locator('h1:has-text("Elif Yilmaz")').count() == 1 and page.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').count() == 1, 'influencer dashboard opens from the name with its campaigns')
+            ck = page.locator('#creator-dash .kpi:has-text("Views") .v').first.inner_text()
+            check(ck in ('241K', '241.0K') and page.locator('#creator-content tbody tr').count() >= 2, 'influencer dashboard: consolidated views (%s) and each piece listed' % ck)
+            btn('Export CSV').click(); page.wait_for_timeout(400)
+            icsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("_influencer_")).pop()')
+            check(icsv and 'Summer Glow' in icsv['text'] and 'Live' in icsv['text'], 'influencer dashboard CSV export')
+            page.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').click(); page.wait_for_selector('button:has-text("Open project")')
+            check(True, 'campaign row opens that project\'s dashboard')
             shot('13b_dashboard')
 
             # ============ 14. finance (owner-only) ============

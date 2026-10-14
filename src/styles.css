@@ -378,3 +378,6 @@ button.tag{cursor:pointer}
 .dash-proj{display:flex;flex-wrap:wrap;gap:4px;min-width:140px;max-width:280px}
 .dash-proj .tag{cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dash-proj .tag.out{opacity:.55}
+.lnk{border:0;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.lnk:hover strong,.lnk:focus-visible strong{color:var(--primary);text-decoration:underline;text-underline-offset:2px}
+.tbl tr.tot td{background:var(--sunken)}

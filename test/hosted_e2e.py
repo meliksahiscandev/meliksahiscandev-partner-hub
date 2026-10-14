@@ -378,6 +378,15 @@ def main():
             A.locator('#dash-creators tr:has-text("Elif") .dash-proj .tag:has-text("Import Test")').click(); A.wait_for_function('() => location.hash === "#d.j-' + IPR + '"')
             check(True, 'clicking a project tag opens that project\'s dashboard')
             shot(A, 'h16a_dashboard_projects')
+            nav(A, '#d.all'); A.wait_for_selector('#dash-creators button.lnk:has-text("Elif")')
+            A.locator('#dash-creators button.lnk:has-text("Elif")').click(); A.wait_for_selector('#creator-dash')
+            check(A.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').count() == 1 and A.locator('#creator-campaigns tbody tr:has-text("Import Test")').count() == 1 and A.locator('#creator-campaigns tr.tot').count() == 1, 'influencer dashboard: both campaigns plus a consolidated row')
+            check(A.locator('#creator-content img.thumb').count() >= 1 and A.locator('#creator-content a:has-text("View post")').count() >= 1, 'influencer dashboard lists what they posted with link and screenshot')
+            check(A.locator('#creator-dash .kpi:has-text("Campaigns") .v').inner_text() == '2', 'influencer dashboard counts 2 campaigns')
+            shot(A, 'h16b_influencer_dashboard')
+            EID = [k for k, v in state(B)['influencers'].items() if v['name'] == 'Elif Yilmaz'][0]
+            nav(B, '#d.i-' + EID); B.wait_for_selector('#creator-dash')
+            check(B.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').count() == 1 and B.locator('.mini-tag').count() == 0, 'brand user opens the same influencer dashboard for their campaigns')
             ADA = [k for k, v in st['influencers'].items() if v['name'] == 'Ada Kaya' and not v.get('removed')][0]
             nav(A, '#team'); A.wait_for_selector('text=Agency team')
             btn(A, 'Invite members').click(); A.fill('#inv-emails', 'mira@gamesmedya.test')
@@ -436,7 +445,7 @@ def main():
             check(h['ok'] and h['errors24h'] == 0 and h['storage']['files'] >= 6, 'health endpoint: no server errors, %s files stored' % h['storage']['files'])
             A.set_viewport_size({'width': 390, 'height': 844})
             wide = []
-            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#home', '#activity', '#files', '#team', '#finance', '#settings']:
+            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#d.i-' + EID, '#home', '#activity', '#files', '#team', '#finance', '#settings']:
                 nav(A, h); A.wait_for_timeout(400); w_ = A.evaluate('() => document.documentElement.scrollWidth')
                 if w_ > 392: wide.append((h, w_))
             check(not wide, 'no horizontal scroll at phone width on any page %s' % wide)
