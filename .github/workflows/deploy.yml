@@ -34,20 +34,34 @@ jobs:
         run: |
           npm ci --prefix hosted
           npm ci --prefix test
-          pip install playwright pillow reportlab openpyxl
+          pip install playwright==1.56.0 pillow reportlab openpyxl
           python -m playwright install --with-deps chromium
       - name: Build
         run: python3 build.py && node --check app.check.js && node --check hosted/src/worker.js && node --check hosted/client/runtime.js
       - name: Artifact version (mocked runtime)
         run: |
-          python3 test/e2e.py | tee e2e.log
-          grep -q "RESULT: .* 0 failed" e2e.log
+          set +e
+          python3 test/e2e.py > e2e.log 2>&1
+          cat e2e.log
+          if ! grep -q "RESULT: .* 0 failed" e2e.log; then
+            msg=$(grep -E "FAIL|ERROR|Error|Traceback|RESULT|console|pageerror|line [0-9]+" e2e.log | tail -n 25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Artifact e2e::${msg}"
+            exit 1
+          fi
       - name: Hosted version (local Worker, two accounts)
         run: |
           cd hosted
           npx wrangler dev --config wrangler.test.toml --port 8787 --ip 127.0.0.1 --persist-to .wrangler/ci > ../wrangler.log 2>&1 &
           for i in $(seq 1 60); do curl -sf localhost:8787/api/health > /dev/null && break; sleep 2; done
-          cd .. && python3 test/hosted_e2e.py http://localhost:8787
+          cd ..
+          set +e
+          python3 test/hosted_e2e.py http://localhost:8787 > hosted.log 2>&1; code=$?
+          cat hosted.log
+          if [ "$code" != "0" ]; then
+            msg=$( (grep -E "FAIL|ERROR|Error|Traceback|RESULT|console|pageerror|line [0-9]+" hosted.log; tail -n 8 wrangler.log) | tail -n 30 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Hosted e2e::${msg}"
+            exit 1
+          fi
       - name: Keep screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,6 +71,8 @@ jobs:
             test/out
             test/out-hosted
             wrangler.log
+            e2e.log
+            hosted.log
           retention-days: 14
   deploy:
     needs: test

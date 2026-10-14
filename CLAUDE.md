@@ -15,7 +15,7 @@ Owner: Meliksah (Games Medya). He writes Turkish; answer in Turkish. Product cop
 - Never put keys, passwords or tokens in the repo, the page, docs or the Ops Center. Secrets are GitHub Actions secrets copied to the Worker at deploy.
 - Never weaken a server permission to make a UI flow work; change the UI or add a narrowly checked endpoint.
 - Every change: `python3 build.py`, `node --check` the three JS files, run `test/e2e.py` and `test/hosted_e2e.py` (see README). Both must end with `0 failed`.
-- Deploy = merge to `main` (GitHub Actions `Deploy`). Agents never push to `main`; they open PRs. The owner merges.
+- Deploy = merge to `main` (GitHub Actions `Deploy`). Agents never push to `main`; they push `agent/...` branches and leave an owner card with the compare link. The owner merges.
 - The `SEED` in `hosted/wrangler.toml` only applies to an empty workspace. Never change or remove the Durable Object migration tags.
 
 ## Ops Center and agents

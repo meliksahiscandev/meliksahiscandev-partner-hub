@@ -7,14 +7,14 @@ owner card when only the owner can decide. Everything the owner reads (Ops Cente
 
 | id | Title (Ops Center) | Runs in | Mission |
 |---|---|---|---|
-| `sre` | Nöbetçi SRE | Nöbet (6× a day) | The site, sign-in, sync and providers work; problems become incidents within hours. |
+| `sre` | Nöbetçi SRE | Nöbet (08:07, then every 3 h to 23:07) | The site, sign-in, sync and providers work; problems become incidents within hours. |
 | `qa` | QA Mühendisi | Sabah test turu (daily 08:47) | Both test suites pass on `main`; every regression becomes a pipeline item with steps to reproduce. |
 | `t_agency` | Ajans test kullanıcısı | Sabah test turu | Uses the product like a Games Medya account manager running several brands. |
 | `t_brand` | Marka test kullanıcısı | Sabah test turu | Uses the product like a Unilever brand manager approving creators and content. |
 | `product` | Ürün Lideri | Sabah test turu (triage) + Geliştirme sprinti | Keeps one ranked backlog with acceptance criteria; says no to scope creep. |
 | `dev` | Geliştirici ve Sürüm | Geliştirme sprinti (daily 13:43) | Ships the top spec items as reviewed branches the owner can merge. |
 
-Weekly learning (Sunday 10:30) runs all six: what went well, repeated mistakes, new rules → their charter files.
+Weekly learning (Sunday 10:21) runs all six: what went well, repeated mistakes, new rules → their charter files.
 
 ## Where things are
 - Repo: `meliksahiscandev/meliksahiscandev-partner-hub` (attach with `add_repo`, access `push`; clone to `/home/claude/partner-hub`).
@@ -45,27 +45,28 @@ python3 test/e2e.py; python3 test/hosted_e2e.py http://localhost:8787
 Test accounts (local only): `owner@test.local / owner-pass-123` (agency owner), `buyer@unilever.test / buyer-pass-123` (Unilever admin).
 
 ## Live reporting (Ops Center data contract)
-Pin every write to an existing document with `if_version`; use `batch` when writing more than two documents. Times are ISO-8601 UTC.
+The Ops Center renders exactly these shapes. Pin every write to an existing document with `if_version` (read it first);
+use `batch` when writing more than two documents. Times are ISO-8601 UTC; the panel shows Istanbul time. Text is Turkish.
 
 | Collection / doc | Shape | Who writes |
 |---|---|---|
-| `agents/<id>` | `{title, mission, focus, health: green\|amber\|red, lastOutcome, lastRunAt, schedule, order, learnedAt}` | each agent, end of run |
-| `live/<id>` | `{state: running\|idle, phase, step, runId, startedAt, updatedAt}` — phases: `hazırlık, kontrol, test, analiz, düzeltme, rapor` | each agent, while working |
-| `steps/<runId>-<n>` | `{agent, runId, phase, text, startedAt}` one short Turkish line per meaningful step | each agent |
-| `runs/<yyyymmdd>_<id>[_n]` | `{agent, date, outcome: shipped\|no-op\|blocked\|failed, summary, details, links:[{label,url}]}` | each agent, end of run |
-| `health/now` | `{overall, checkedAt, tiles:[{label, value, detail, state: ok\|warn\|bad}]}` | sre |
-| `uptime/<yyyy-mm-dd>` | `{date, checks, ok, warn, bad}` (increment) | sre |
-| `platform/now` | `{at, counts:{partnerships, projects, influencers, files, users}, pending:{masterfileReviews}, storageMb, version, features}` | sre |
-| `incidents/<id>` | `{severity: sev1\|sev2\|sev3, title, status: open\|mitigated\|resolved, agent, openedAt, resolvedAt, detail}` | sre, qa |
-| `releases/<id>` | `{at, kind: deploy\|branch\|rollback, what, outcome: success\|failed\|waiting, commit, url}` | sre (deploys seen), dev (branches) |
-| `pipeline/PH-###` | `{title, sev: P0\|P1\|P2, stage: backlog\|spec\|dev\|review\|done\|wontfix, owner, reporter, acceptance:[...], deps:[], branch, history:[{at, by, text}]}` | qa, product, dev |
-| `tests/<persona>-<yyyymmdd>` | `{persona, at, score:{overall, gorev, netlik, guven, hiz}, summary, scenarios:[...], findings:[PH-###]}` | qa / testers |
-| `tasks/<id>` | `{title, from, to, status: open\|done, createdAt}` handoffs between agents | anyone |
-| `owner/<id>` | `{kind: approval\|decision\|access, title, why, do, links:[{label,url}], status: open\|done, createdAt}` — what the owner must do | anyone; owner ticks done in the Ops Center |
-| `learning/<id>-<yyyy>w<ww>` | `{agent, week, items:[{kind: fact\|change\|tool\|task\|deadline\|owner, text}]}` | weekly learning |
-| `meta/state` | `{lastNobetAt, lastTestAt, lastSprintAt, lastLearnAt}` | each run |
+| `agents/<role>` | `{title, mission, focus, health: green\|amber\|red, lastOutcome, lastRunAt, schedule, times:["HH:MM"], order, learn:{dow, at}, learnedAt}` — update `focus`, `health`, `lastOutcome`, `lastRunAt` at the end of every run | each agent |
+| `live/<role>` (weekly learning: `live/<role>-learning`) | `{state: running\|idle, phase: setup\|look\|work\|test\|ship\|report, step, stepAt, startedAt, branch?}` — set running at start, update `step/stepAt` at every step, idle at the end | each agent |
+| `steps/<runId>` | `{role, kind: run\|learning, runId, startedAt, items:[{at, phase, text}]}` — append one short line per meaningful step (update the same doc) | each agent |
+| `runs/<yyyymmdd>_<role>` | `{role, date: "yyyy-mm-dd", items:[{at, outcome: shipped\|no-op\|blocked\|failed, summary, details?, branch?, commit?, links:[{label, url}]}]}` — append one item per run | each agent |
+| `health/now` | `{overall: green\|amber\|red, checkedAt, tiles:[{label, value, detail, state: ok\|warn\|bad}]}` | sre |
+| `uptime/<yyyy-mm-dd>` | `{date, checks, ok}` (increment; `ok` counts checks where nothing was `bad`) | sre |
+| `platform/now` | `{at, site, version, counts:{partnerships, projects, influencers, files, invites, users}, pending:{masterfileReviews}, storageFiles, storageMb, errors24h, lastErrorWhere, features:{claude, apify, screenshots, email}, lastWriteAt, sockets}` (copy from `/api/health`) | sre |
+| `incidents/<id>` | `{severity: sev1\|sev2\|sev3, title, summary, status: open\|mitigated\|resolved, role, openedAt, resolvedAt?}` | sre, qa |
+| `releases/<id>` | `{at, kind: deploy\|branch\|rollback\|config, summary, detail?, result: live\|pending\|failed\|rolled-back\|superseded, commit?}` | sre (deploys seen on main), dev (branches waiting for the owner) |
+| `pipeline/PH-###` | `{title, sev: P0\|P1\|P2, stage: backlog\|spec\|dev\|review\|done\|wontfix, owner: <role>, reporter: <role>, acceptance:[...], deps:[], branch?, createdAt, history:[{at, by, text}]}` | qa, testers, product, dev |
+| `tests/<persona>-<yyyymmdd>` | `{persona: t_agency\|t_brand\|qa, at, score:{overall, gorev, netlik, guven, hiz} (1–5), summary, scenarios:[...], findings:["PH-###"]}` | qa run |
+| `tasks/<id>` | `{title, detail?, from: <role>, role: <to-role>, status: open\|done, result?, createdAt}` | anyone |
+| `owner/<id>` | `{title, why, ask, role, link?, linkLabel?, status: open\|done, createdAt}` — what only the owner can do; he presses "Yaptım" (status done) | anyone |
+| `learning/<role>` | `{at, week: "2026-W42", summary, sourcesChecked?, items:[{kind: fact\|change\|tool\|task\|deadline\|owner, text, link?, source?}]}` | weekly learning |
+| `meta/state` | `{lastNobetAt, lastTestAt, lastSprintAt, lastLearnAt, site, repo}` | each run |
 
-Status words for the owner: Sağlıklı / Dikkat / Sorunlu; Yayına alındı / Değişiklik yok / Takıldı / Başarısız.
+Words for the owner: Sağlıklı / Dikkat / Sorunlu; Yayına alındı / Değişiklik yok / Takıldı / Başarısız.
 
 ## Severity
 - **sev1**: site down, sign-in broken, data visible to the wrong account, data loss → open incident + owner card immediately.
