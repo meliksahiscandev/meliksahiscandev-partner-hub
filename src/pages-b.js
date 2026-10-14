@@ -17,7 +17,7 @@ function ProjectView({ id, tab }) {
     if (t.key === 'submission' && !role.asCustomer) count = m.asgNotPosted;
     return Object.assign({}, t, { step: i < 5 ? String(i + 1) : null, count, hot: count > 0 });
   });
-  const fin = role.isOwner ? s.finance.find(x => x.id === p.id) : null;
+  const fin = role.canFinance ? s.finance.find(x => x.id === p.id) : null;
   return html`<${Fragment}>
     <${PageHead} eyebrow=${p.name + ' · project'} title=${pr.name}
       meta=${html`${msa ? html`<${Badge} cls=${msa.status === 'uploaded' ? 'outline' : 'crit'}>${msa.label}${msa.status !== 'uploaded' ? ' · to be delivered' : ''}<//>` : null}${(pr.brandIds || []).map(b => bi[b] ? html`<span key=${b} className="tag">${bi[b].name}</span>` : null)}<span className="t3 small">${(pr.content || []).map(c => c.qty + '× ' + dLabel(c.platform, c.type)).join(' · ')}${(pr.creators || []).length ? ' · ' + pr.creators.map(c => c.count + ' ' + TIERS[c.tier].short.toLowerCase()).join(' + ') + ' creators' : ''}</span>`}
@@ -51,7 +51,7 @@ function ProjectSummary({ pr, p }) {
       ${sum.summary ? html`<p className="ps-text">${sum.summary}</p>` : null}
       <div className="ps-facts">${fact('Objective', sum.objective)}${fact('Timeline', sum.timeline)}${fact('KPIs', sum.kpis)}${fact('Mandatories', sum.mandatories)}</div>
     <//>` : !job ? html`<p className="t2 small">${files.length ? 'The protocol is uploaded. Press Summarize to have Claude write the project summary.' : 'Upload the project protocol (the agreed project brief). Claude reads it and writes a one-paragraph summary here for the team and the brand.'}</p>` : null}
-    ${role.canAgency && files.length ? html`<div className="row" style=${{ gap: '6px' }}>${files.map(f => html`<button key=${f.id} className="tag" title="Download" onClick=${() => downloadFile(f)}><${Icon} n="file" s=${12}/><span className="mono">${f.name}</span></button>`)}</div>` : null}
+    ${role.inAgency && files.length ? html`<div className="row" style=${{ gap: '6px' }}>${files.map(f => html`<button key=${f.id} className="tag" title="Download" onClick=${() => downloadFile(f)}><${Icon} n="file" s=${12}/><span className="mono">${f.name}</span></button>`)}</div>` : null}
   </div></section>`;
 }
 function StageTracker({ m }) {
@@ -135,7 +135,7 @@ function MasterfileTab({ pr, p, infs, m }) {
     </div></div>
     ${rows.length ? html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>#</th><th>Influencer</th><th>Instagram</th><th>TikTok</th><th>Tier</th><th>Status</th><th className="r">Actions</th></tr></thead><tbody>
       ${rows.map((i, idx) => { const st = infState(i); const cms = cmtList(i.comments); const oc = openChanges(i.comments).length; const isOpen = open[i.id] || commenting === i.id;
-        const platCell = k => { const x = i.platforms && i.platforms[k]; return x && x.enabled ? html`<div className="cs"><span className="handle">@${x.handle}</span><span className="stat row nw" style=${{ gap: '4px' }}>${fmtK(x.followers)} followers · ER ${fmtPct(x.er)}${role.canAgency ? statTag(x, 'er') : null}</span></div>` : html`<span className="t3">—</span>`; };
+        const platCell = k => { const x = i.platforms && i.platforms[k]; return x && x.enabled ? html`<div className="cs"><span className="handle">@${x.handle}</span><span className="stat row nw" style=${{ gap: '4px' }}>${fmtK(x.followers)} followers · ER ${fmtPct(x.er)}${role.inAgency ? statTag(x, 'er') : null}</span></div>` : html`<span className="t3">—</span>`; };
         return html`<${Fragment} key=${i.id}><tr className=${isOpen ? 'sel' : ''}>
           <td className="idx">${idx + 1}</td><td><div className="cs"><strong>${i.name}</strong>${cms.length ? html`<button className="btn btn-ghost btn-sm" style=${{ alignSelf: 'flex-start', height: '22px', padding: '0 6px' }} onClick=${() => setOpen(o => Object.assign({}, o, { [i.id]: !o[i.id] }))}><${Icon} n="comment" s=${12}/>${plural(cms.length, 'comment')}${oc ? ' · ' + oc + ' open' : ''}</button>` : null}</div></td>
           <td>${platCell('instagram')}</td><td>${platCell('tiktok')}</td>
@@ -164,17 +164,36 @@ async function refreshCreatorStats(infs, onProgress) {
   const res = { updated: 0, failed: [], keptManual: 0 };
   const jobs = []; infs.forEach(i => enabledPlats(i).forEach(k => { if ((i.platforms[k] || {}).handle) jobs.push({ i, k }); }));
   const byInf = {};
-  for (let n = 0; n < jobs.length; n++) {
-    const { i, k } = jobs[n]; onProgress && onProgress(n + 1, jobs.length, i, k);
+  const apply = (i, k, r) => {
     const cur = i.platforms[k];
-    try {
-      const r = await CAP.hosted.social.profile(k, cur.handle);
-      const x = { fetched: { followers: r.followers, er: r.er, at: nowIso(), sample: r.sample || 0, source: r.source || 'apify' } };
-      if (cur.fSource !== 'manual' && isNum(r.followers)) { x.followers = r.followers; x.fSource = 'apify'; }
-      if (cur.erSource !== 'manual' && isNum(r.er)) { x.er = r.er; x.erSource = 'apify'; }
-      if (cur.fSource === 'manual' || cur.erSource === 'manual') res.keptManual++;
-      (byInf[i.id] = byInf[i.id] || { i, upd: {} }).upd[k] = x; res.updated++;
-    } catch (e) { res.failed.push(i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e)); }
+    const x = { fetched: { followers: r.followers, er: r.er, at: nowIso(), sample: r.sample || 0, source: r.source || 'apify' } };
+    if (cur.fSource !== 'manual' && isNum(r.followers)) { x.followers = r.followers; x.fSource = 'apify'; }
+    if (cur.erSource !== 'manual' && isNum(r.er)) { x.er = r.er; x.erSource = 'apify'; }
+    if (cur.fSource === 'manual' || cur.erSource === 'manual') res.keptManual++;
+    (byInf[i.id] = byInf[i.id] || { i, upd: {} }).upd[k] = x; res.updated++;
+  };
+  const batch = jobs.length > 1 && CAP.hosted && CAP.hosted.social && CAP.hosted.social.profiles;
+  if (batch) {
+    // One lookup run per platform for up to 20 creators: much faster and kinder to rate limits than one run each.
+    let done = 0;
+    for (const k of Object.keys(PLATFORMS)) {
+      const js = jobs.filter(j => j.k === k);
+      for (let o = 0; o < js.length; o += 20) {
+        const chunk = js.slice(o, o + 20);
+        onProgress && onProgress(done + chunk.length, jobs.length, chunk[0].i, k, chunk.length);
+        try {
+          const r = await CAP.hosted.social.profiles(k, chunk.map(j => j.i.platforms[k].handle));
+          for (const j of chunk) { const x = (r.results || {})[String(j.i.platforms[k].handle).replace(/^@/, '').trim()]; if (x && !x.error) apply(j.i, k, x); else res.failed.push(j.i.name + ' (' + PLATFORMS[k].label + '): ' + ((x && x.message) || 'not a valid username')); }
+        } catch (e) { chunk.forEach(j => res.failed.push(j.i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e))); }
+        done += chunk.length;
+      }
+    }
+  } else {
+    for (let n = 0; n < jobs.length; n++) {
+      const { i, k } = jobs[n]; onProgress && onProgress(n + 1, jobs.length, i, k, 1);
+      try { apply(i, k, await CAP.hosted.social.profile(k, i.platforms[k].handle)); }
+      catch (e) { res.failed.push(i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e)); }
+    }
   }
   for (const { i, upd } of Object.values(byInf)) {
     const data = { platforms: upd, statsAt: nowIso() };
@@ -189,7 +208,7 @@ async function fetchAllStats(pr, infs) {
   if (!socialOn()) { toast('Automatic lookup is not set up on the server.', 'warn'); return; }
   setJob(key, { step: 'Starting…' });
   try {
-    const r = await refreshCreatorStats(infs, (n, t, i, k) => setJob(key, { step: 'Fetching ' + n + '/' + t + ' · @' + ((i.platforms[k] || {}).handle || i.name) }));
+    const r = await refreshCreatorStats(infs, (n, t, i, k, size) => setJob(key, { step: 'Fetching ' + n + '/' + t + (size > 1 ? ' · ' + PLATFORMS[k].label : ' · @' + ((i.platforms[k] || {}).handle || i.name)) }));
     logEvent('masterfile.refresh_stats', { pid: pr.partnershipId, prid: pr.id, refName: pr.name, scope: 'agency', text: 'Fetched followers and ER for ' + plural(r.updated, 'profile') + (r.failed.length ? ' (' + r.failed.length + ' failed)' : ''), meta: { updated: r.updated, failed: r.failed.length, keptManual: r.keptManual } });
     toast(r.failed.length ? 'Updated ' + r.updated + ', failed ' + r.failed.length + ': ' + r.failed.slice(0, 2).join('; ') : 'Stats updated for ' + plural(r.updated, 'profile') + (r.keptManual ? '. Manual values kept.' : ''), r.failed.length ? 'warn' : 'ok');
   } catch (e) { toast(errText(e), 'crit'); }
@@ -716,7 +735,7 @@ function PerfModal({ p, pr, inf }) {
   <//>`;
 }
 
-/* ===================== finance (owner only, server-locked) ===================== */
+/* ===================== finance (owner + agency admins on hosted; server-locked) ===================== */
 function finRows(f) { return Object.entries((f && f.rows) || {}).map(([id, r]) => Object.assign({ id }, r)).filter(r => !r.removed).sort((a, b) => String(a.invoiceDate || '9').localeCompare(String(b.invoiceDate || '9')) || byCreated(a, b)); }
 function finTotals(f) {
   const rows = finRows(f); const today = todayStr();
@@ -732,6 +751,7 @@ function finTotals(f) {
     nextDue: outstandingRows.filter(r => r.dueDate).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] || null,
   };
 }
+const FIN_WHO = HOSTED ? 'Only the owner and agency admins can see this section' : 'Only you can see this section';
 const finLog = (pid, text) => ({ history: { [Date.now().toString(36) + rid(4)]: { at: nowIso(), by: store.me.id || null, text } } });
 const finSave = (pid, data, text, msg) => act(() => dbx.update('finance', pid, Object.assign({}, data, { updatedAt: nowIso() }, text ? finLog(pid, text) : {})), msg);
 function FinanceStrip({ compact }) {
@@ -740,7 +760,7 @@ function FinanceStrip({ compact }) {
   const byCur = {};
   for (const f of s.finance) { const p = partnerOf(s, f.id); if (!p || !isActive(p)) continue; const t = finTotals(f); const c = f.currency || 'TRY'; const a = byCur[c] = byCur[c] || { budget: 0, invoicedNet: 0, collected: 0, outstanding: 0, overdue: 0, overdueCount: 0 }; a.budget += t.budget; a.invoicedNet += t.invoicedNet; a.collected += t.collected; a.outstanding += t.outstanding; a.overdue += t.overdue; a.overdueCount += t.overdueCount; }
   if (!Object.keys(byCur).length) return null;
-  return html`<${Card} title=${html`<h2 className="row nw" style=${{ gap: '7px' }}><${Icon} n="lock" s=${14}/>Finance</h2>`} sub="Visible only to you, locked on the server." actions=${compact ? html`<button className="btn btn-sm" onClick=${() => go({ view: 'finance' })}>Open finance</button>` : null}>
+  return html`<${Card} title=${html`<h2 className="row nw" style=${{ gap: '7px' }}><${Icon} n="lock" s=${14}/>Finance</h2>`} sub=${HOSTED ? 'Visible only to the owner and agency admins, locked on the server.' : 'Visible only to you, locked on the server.'} actions=${compact ? html`<button className="btn btn-sm" onClick=${() => go({ view: 'finance' })}>Open finance</button>` : null}>
     ${Object.entries(byCur).map(([c, a]) => html`<div key=${c} className="kpis">
       <${Kpi} l=${'Total budget · ' + c} v=${fmtMoney(a.budget, c)} s="net of VAT"/><${Kpi} l="Invoiced" v=${fmtMoney(a.invoicedNet, c)} s="net"/><${Kpi} l="Collected" v=${fmtMoney(a.collected, c)} cls="ok" s="incl. VAT"/><${Kpi} l="Outstanding" v=${fmtMoney(a.outstanding, c)} cls="warn" s="invoiced, not collected"/><${Kpi} l="Overdue" v=${fmtMoney(a.overdue, c)} cls=${a.overdueCount ? 'crit' : ''} s=${plural(a.overdueCount, 'invoice') + ' past due'}/>
     </div>`)}
@@ -750,7 +770,7 @@ function FinancePage() {
   const { s, go } = useCtx();
   const parts = activeParts(s);
   return html`<${Fragment}>
-    <${PageHead} eyebrow="Owner only" title="Finance" meta=${html`<span className="t3 small">Budgets, invoice dates and the collection plan. Stored in a server-locked area only the workspace owner can read.</span>`}/>
+    <${PageHead} eyebrow=${HOSTED ? 'Owner and admins' : 'Owner only'} title="Finance" meta=${html`<span className="t3 small">Budgets, invoice dates and the collection plan. Stored in a server-locked area only ${HOSTED ? 'the owner and agency admins' : 'the workspace owner'} can read. Members never see it.</span>`}/>
     <${FinanceStrip}/>
     <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Partnership</th><th className="r">Budget</th><th className="r">Invoice plan</th><th className="r">Invoices</th><th className="r">Collected</th><th className="r">Outstanding</th><th>Next invoice</th></tr></thead><tbody>
       ${parts.map(p => { const f = s.finance.find(x => x.id === p.id); if (!f) return html`<tr key=${p.id} className="click" onClick=${() => go({ view: 'partnership', id: p.id, tab: 'finance' })}><td><strong>${p.name}</strong></td><td colSpan="6" className="t3 small">Finance tracking not started · open to set up</td></tr>`; const t = finTotals(f); const c = f.currency || 'TRY'; return html`<tr key=${p.id} className="click" onClick=${() => go({ view: 'partnership', id: p.id, tab: 'finance' })}><td><strong>${p.name}</strong></td><td className="r money">${fmtMoney(t.budget, c)}</td><td className="r money">${fmtMoney(t.planned, c)}</td><td className="r num">${t.invoicedCount}/${t.rows.length}</td><td className="r money">${fmtMoney(t.collected, c)}</td><td className="r money">${t.overdueCount ? html`<span style=${{ color: 'var(--crit)' }}>${fmtMoney(t.outstanding, c)}</span>` : fmtMoney(t.outstanding, c)}</td><td className="small">${t.next ? fmtDate(t.next.invoiceDate) : '—'}</td></tr>`; })}
@@ -759,7 +779,7 @@ function FinancePage() {
 }
 function FinanceTab({ p }) {
   const { s, role } = useCtx();
-  if (!role.isOwner) return html`<${Empty} title="Finance is visible to the workspace owner only"><//>`;
+  if (!role.canFinance) return html`<${Empty} title=${HOSTED ? 'Finance is visible to the owner and agency admins only' : 'Finance is visible to the workspace owner only'}><//>`;
   if (!s.loaded.finance) return html`<p className="t3">Loading finance…</p>`;
   const f = s.finance.find(x => x.id === p.id);
   return f ? html`<${FinanceBody} p=${p} f=${f}/>` : html`<${FinanceSetup} p=${p}/>`;
@@ -772,7 +792,7 @@ function FinanceSetup({ p }) {
     await act(() => dbx.set('finance', p.id, Object.assign({ currency: cur, totalBudget: parseNum(budget) || 0, vatRate: parseNum(vat) || 0, termDays: parseInt(term) || 0, budgets: {}, rows: {}, notes: '', createdAt: nowIso(), updatedAt: nowIso() }, finLog(p.id, 'Started finance tracking (' + cur + ', budget ' + fmtMoney(parseNum(budget) || 0, cur) + ')'))), 'Finance tracking started');
     setBusy(false);
   };
-  return html`<${Card} title=${html`<h2 className="row nw" style=${{ gap: '7px' }}><${Icon} n="lock" s=${14}/>Start finance tracking</h2>`} sub=${'Budget, invoice dates and the collection plan for ' + p.name + '. Only you can see this section.'}>
+  return html`<${Card} title=${html`<h2 className="row nw" style=${{ gap: '7px' }}><${Icon} n="lock" s=${14}/>Start finance tracking</h2>`} sub=${'Budget, invoice dates and the collection plan for ' + p.name + '. ' + FIN_WHO + '.'}>
     <div className="grid2"><label className="field"><span>Total budget (net of VAT)</span><input className="input num" id="fin-budget" inputMode="decimal" value=${budget} onChange=${e => setBudget(e.target.value)} placeholder="e.g. 1.250.000"/></label>
       <label className="field"><span>Currency</span><select className="input" id="fin-cur" value=${cur} onChange=${e => setCur(e.target.value)}>${CURRENCIES.map(c => html`<option key=${c} value=${c}>${c}</option>`)}</select></label>
       <label className="field"><span>VAT (KDV) %</span><input className="input num" id="fin-vat" inputMode="decimal" value=${vat} onChange=${e => setVat(e.target.value)}/></label>
@@ -790,7 +810,7 @@ function FinanceBody({ p, f }) {
   const hist = cmtList(f.history).reverse().slice(0, 30);
   usePeople(hist.map(h => h.by));
   return html`<${Fragment}>
-    <div className="banner neutral"><${Icon} n="lock" s=${16}/><div className="b-body small">Only you can see this section. It is locked on the server, not just hidden: customers and other editors cannot read it.</div></div>
+    <div className="banner neutral"><${Icon} n="lock" s=${16}/><div className="b-body small">${FIN_WHO}. It is locked on the server, not just hidden: customers and agency members cannot read it.</div></div>
     <div className="kpis">
       <${Kpi} l="Total budget" v=${fmtMoney(t.budget, cur)} s=${'net · VAT ' + (f.vatRate || 0) + '%'}/>
       <${Kpi} l="Invoice plan" v=${fmtMoney(t.planned, cur)} cls=${t.budget && Math.abs(t.planned - t.budget) > 1 ? 'warn' : ''} s=${t.budget ? (t.planned < t.budget ? fmtMoney(t.budget - t.planned, cur) + ' not yet planned' : t.planned > t.budget ? fmtMoney(t.planned - t.budget, cur) + ' over budget' : 'matches budget') : 'net'}/>
@@ -824,7 +844,7 @@ function FinanceBody({ p, f }) {
     <//>
     <div className="grid2">
       <${Card} title="Notes"><${NotesField} value=${f.notes || ''} onSave=${v => finSave(p.id, { notes: v }, 'Updated finance notes')}/><//>
-      <${Card} title="Finance history" sub="Owner-only log of budget and invoice changes" flush=${true}><div className="feed">${hist.length ? hist.map(h => html`<div key=${h.id} className="fev"><span className="ic"><${Icon} n="coin" s=${12}/></span><div className="tx small">${h.text}</div><span className="when">${fmtAgo(h.at)}</span></div>`) : html`<div className="t3 small" style=${{ padding: '14px 16px' }}>No changes yet.</div>`}</div><//>
+      <${Card} title="Finance history" sub="Log of budget and invoice changes" flush=${true}><div className="feed">${hist.length ? hist.map(h => html`<div key=${h.id} className="fev"><span className="ic"><${Icon} n="coin" s=${12}/></span><div className="tx small">${h.text}</div><span className="when">${fmtAgo(h.at)}</span></div>`) : html`<div className="t3 small" style=${{ padding: '14px 16px' }}>No changes yet.</div>`}</div><//>
     </div>
   <//>`;
 }

@@ -3,6 +3,19 @@ const { useState, useEffect, useMemo, useRef, useCallback, Fragment } = React;
 const html = htm.bind(React.createElement);
 const TAB_ID = Math.random().toString(36).slice(2, 8);
 const HOSTED = !!window.__HOSTED__;
+// Dark is the default look. Light only when chosen here or set explicitly by the host page (data-theme="light").
+const THEME_KEY = 'ph-theme';
+function initialTheme() {
+  let t = null; try { t = localStorage.getItem(THEME_KEY); } catch (e) { }
+  if (t !== 'light' && t !== 'dark') t = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  return t;
+}
+function setTheme(t) {
+  try { localStorage.setItem(THEME_KEY, t); } catch (e) { }
+  document.documentElement.setAttribute('data-theme', t);
+  store.ui = Object.assign({}, store.ui, { theme: t }); emit();
+}
 
 const PLATFORMS = {
   instagram: { label: 'Instagram', short: 'IG', types: ['post', 'story', 'reels'], host: /(^|\.)instagram\.com$/i },
@@ -24,14 +37,27 @@ const STAGES = [
 ];
 const AGENCY_ROLES = {
   owner: { label: 'Owner', d: 'Full control, finance, backups and permanent deletion' },
-  admin: { label: 'Admin', d: 'Manages the team, partnerships, members and storage' },
-  member: { label: 'Member', d: 'Runs partnerships and projects day to day' },
+  admin: { label: 'Admin', d: HOSTED ? 'Manages the team and member access, partnerships, finance, settings and storage' : 'Manages the team and member access, partnerships, settings and storage' },
+  member: { label: 'Member', d: 'Works on partnerships and projects with the access an admin sets. No finance, team or settings.' },
 };
 const CUSTOMER_ROLES = {
-  admin: { label: 'Customer admin', d: 'Approves and invites colleagues' },
-  approver: { label: 'Approver', d: 'Approves creators and content' },
-  viewer: { label: 'Viewer', d: 'Read-only access' },
+  admin: { label: 'Admin', d: 'Approves creators and content, invites colleagues and sets their access' },
+  member: { label: 'Member', d: 'Approves and comments, or follows progress read-only, as an admin sets' },
 };
+const ACCESS = {
+  edit: { label: 'Edit', d: 'Can make changes' },
+  view: { label: 'View', d: 'Read-only' },
+};
+// Invitation roles, normalised. Older invitations used customer roles approver (= member, edit) and viewer (= member, view).
+function invRole(i) {
+  const r = i && i.role;
+  if (r === 'owner' || r === 'admin') return { role: r, access: 'edit' };
+  if (r === 'approver') return { role: 'member', access: 'edit' };
+  if (r === 'viewer') return { role: 'member', access: 'view' };
+  return { role: 'member', access: i && i.access === 'view' ? 'view' : 'edit' };
+}
+const LEVEL_RANK = { view: 1, edit: 2, admin: 3 };
+function invLevel(i) { const n = invRole(i); return n.role === 'admin' ? 'admin' : n.access; }
 const FIN_STATUS = { planned: { label: 'Planned', cls: '' }, invoiced: { label: 'Invoiced', cls: 'info' }, collected: { label: 'Collected', cls: 'ok' } };
 const CURRENCIES = ['TRY', 'USD', 'EUR', 'GBP'];
 const MB = 1048576;
@@ -124,7 +150,7 @@ const store = {
   sampleLimits: null,
   partnerships: [], projects: [], influencers: [], files: [], invites: [], members: [], finance: [], audit: [], auditOlder: [], settings: {},
   loaded: { partnerships: false, projects: false, influencers: false, files: false, invites: false, members: false, finance: false, audit: false, settings: false },
-  ui: { previewCustomer: false },
+  ui: { previewCustomer: false, theme: initialTheme() },
   jobs: {}, toasts: [], outboxN: 0, auditShard: {},
 };
 const subs = new Set();
@@ -188,7 +214,8 @@ async function boot() {
     store[key] = snap.docs.map(d => Object.assign({ id: d.id }, d.data())); store.loaded[key] = true; emit();
   }, err => { console.warn(name, err); store.loaded[key] = true; emit(); if (err && err.code !== 'revoked') toast('Could not load ' + name + ': ' + errText(err), 'crit'); });
   ['partnerships', 'projects', 'influencers', 'files', 'invites', 'members'].forEach(n => watch(n, n));
-  if (store.me.isOwner) watch('finance', 'finance'); else store.loaded.finance = true;
+  // Hosted: the server returns finance only to the owner and agency admins. Artifact: owner only.
+  if (store.me.isOwner || HOSTED) watch('finance', 'finance'); else store.loaded.finance = true;
   CAP.db.collection('audit').orderBy('date', 'desc').limit(10).onSnapshot(snap => {
     store.audit = snap.docs.map(d => Object.assign({ id: d.id }, d.data())); store.loaded.audit = true; emit();
   }, err => { console.warn('audit', err); store.loaded.audit = true; emit(); });
@@ -228,15 +255,16 @@ function computeAccess(s) {
   if (s.phase !== 'ready') return { status: 'loading' };
   const me = s.me;
   if (!me.id) return { status: 'signedout' };
-  if (me.isOwner) return { status: 'ok', type: 'agency', role: 'owner', accounts: {} };
+  if (me.isOwner) return { status: 'ok', type: 'agency', role: 'owner', perm: 'edit', accounts: {} };
   if (!s.loaded.members || !s.loaded.invites || !s.loaded.partnerships) return { status: 'loading' };
   const mem = s.members.find(m => m.id === me.id);
   const ids = mem ? Object.keys(mem.inviteIds || {}) : [];
   const mine = s.invites.filter(i => ids.includes(i.id) && i.status === 'accepted' && i.acceptedBy === me.id);
-  const ag = mine.find(i => i.accountType === 'agency');
-  if (ag) return { status: 'ok', type: 'agency', role: AGENCY_ROLES[ag.role] ? ag.role : 'member', accounts: {} };
+  const best = list => list.map(invLevel).sort((a, b) => LEVEL_RANK[b] - LEVEL_RANK[a])[0];
+  const agl = best(mine.filter(i => i.accountType === 'agency'));
+  if (agl) return { status: 'ok', type: 'agency', role: agl === 'admin' ? 'admin' : 'member', perm: agl === 'view' ? 'view' : 'edit', accounts: {} };
   const accounts = {};
-  mine.filter(i => i.accountType === 'customer').forEach(i => { const p = s.partnerships.find(x => x.id === i.accountId); if (p && (p.status || 'active') === 'active') accounts[i.accountId] = CUSTOMER_ROLES[i.role] ? i.role : 'viewer'; });
+  mine.filter(i => i.accountType === 'customer').forEach(i => { const p = s.partnerships.find(x => x.id === i.accountId); if (!p || (p.status || 'active') !== 'active') return; const l = invLevel(i); if (!accounts[i.accountId] || LEVEL_RANK[l] > LEVEL_RANK[accounts[i.accountId]]) accounts[i.accountId] = l; });
   if (Object.keys(accounts).length) return { status: 'ok', type: 'customer', accounts };
   return { status: 'join', hadAccess: mine.length > 0 || ids.length > 0 };
 }
@@ -245,17 +273,23 @@ function getRole(s) {
   const isAgency = a.type === 'agency';
   const preview = isAgency && !!s.ui.previewCustomer;
   const accounts = a.accounts || {};
+  const inAgency = isAgency && !preview;
+  const viewOnly = inAgency && a.role === 'member' && a.perm === 'view';
   const r = {
     status: a.status, access: a, type: a.type || null, preview, isAgency, isCustomer: a.type === 'customer',
     asCustomer: a.type === 'customer' || preview,
-    canAgency: isAgency && !preview,
-    isAdmin: isAgency && !preview && (a.role === 'owner' || a.role === 'admin'),
-    isOwner: isAgency && !preview && a.role === 'owner',
-    agencyRole: isAgency ? a.role : null, accounts,
+    inAgency, viewOnly,
+    canAgency: inAgency && !viewOnly,
+    isAdmin: inAgency && (a.role === 'owner' || a.role === 'admin'),
+    isOwner: inAgency && a.role === 'owner',
+    // Finance: the owner; on the hosted site also agency admins (the server enforces the same rule).
+    canFinance: inAgency && (a.role === 'owner' || (HOSTED && a.role === 'admin')),
+    agencyRole: isAgency ? a.role : null, agencyPerm: isAgency ? (a.perm || 'edit') : null, accounts,
     actor: a.type === 'customer' ? 'customer' : preview ? 'agency-for-customer' : 'agency',
   };
-  r.label = isAgency ? (preview ? 'Agency (customer preview)' : 'Agency · ' + AGENCY_ROLES[a.role].label) : a.type === 'customer' ? 'Customer' : '';
-  r.canApprove = pid => preview || (a.type === 'customer' && (accounts[pid] === 'admin' || accounts[pid] === 'approver'));
+  r.label = isAgency ? (preview ? 'Agency (customer preview)' : 'Agency · ' + AGENCY_ROLES[a.role].label + (a.role === 'member' ? ' · ' + ACCESS[a.perm || 'edit'].label : '')) : a.type === 'customer' ? 'Customer' : '';
+  const agencyViewer = isAgency && a.role === 'member' && a.perm === 'view';
+  r.canApprove = pid => (preview && !agencyViewer) || (a.type === 'customer' && (accounts[pid] === 'admin' || accounts[pid] === 'edit'));
   r.canComment = r.canApprove;
   r.canInviteCustomer = pid => r.isAdmin || (a.type === 'customer' && accounts[pid] === 'admin');
   r.customerRole = pid => accounts[pid] || null;
@@ -653,18 +687,25 @@ function newCode() { const r = crypto.getRandomValues(new Uint8Array(10)); let s
 const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 async function codeHash(invId, code) { return sha256Hex(new TextEncoder().encode(invId + ':' + normCode(code))); }
 function accountName(type, id) { if (type === 'agency') return (store.settings && store.settings.agencyName) || 'Games Medya'; const p = partnerOf(store, id); return p ? p.name : 'Customer account'; }
-function roleName(type, role) { return ((type === 'agency' ? AGENCY_ROLES : CUSTOMER_ROLES)[role] || {}).label || role; }
+// roleName(type, invite) or roleName(type, role, access) → "Admin", "Member (edit)", "Member (view)".
+function roleName(type, role, access) {
+  if (role && typeof role === 'object') { const n = invRole(role); role = n.role; access = n.access; }
+  else if (role === 'approver' || role === 'viewer') { const n = invRole({ role }); role = n.role; access = n.access; }
+  const lb = ((type === 'agency' ? AGENCY_ROLES : CUSTOMER_ROLES)[role] || {}).label || role;
+  return role === 'member' ? lb + ' (' + (access === 'view' ? 'view' : 'edit') + ')' : lb;
+}
 function invitesFor(s, type, accountId) { return s.invites.filter(i => i.accountType === type && (type === 'agency' || i.accountId === accountId)).sort(byCreated); }
-async function createInvites(emails, type, accountId, role) {
+async function createInvites(emails, type, accountId, role, access) {
+  access = role === 'member' && access === 'view' ? 'view' : 'edit';
   const out = [], skipped = [];
   for (const raw of emails) {
     const email = normEmail(raw);
     const exists = store.invites.find(i => i.email === email && i.accountType === type && (type === 'agency' || i.accountId === accountId) && (i.status === 'pending' || i.status === 'accepted'));
     if (exists) { skipped.push(email); continue; }
     const id = rid(); const code = newCode();
-    await dbx.set('invites', id, { email, accountType: type, accountId: type === 'agency' ? 'agency' : accountId, role, status: 'pending', codeHash: await codeHash(id, code), invitedBy: store.me.id || null, createdAt: nowIso() });
-    logEvent('member.invite', { pid: type === 'customer' ? accountId : undefined, ref: id, refName: email, scope: type === 'agency' ? 'agency' : undefined, text: 'Invited ' + email + ' to ' + accountName(type, accountId) + ' as ' + roleName(type, role) });
-    out.push({ id, email, code, type, accountId, role });
+    await dbx.set('invites', id, { email, accountType: type, accountId: type === 'agency' ? 'agency' : accountId, role, access, status: 'pending', codeHash: await codeHash(id, code), invitedBy: store.me.id || null, createdAt: nowIso() });
+    logEvent('member.invite', { pid: type === 'customer' ? accountId : undefined, ref: id, refName: email, scope: type === 'agency' ? 'agency' : undefined, text: 'Invited ' + email + ' to ' + accountName(type, accountId) + ' as ' + roleName(type, role, access) });
+    out.push({ id, email, code, type, accountId, role, access });
   }
   return { created: out, skipped };
 }
@@ -678,10 +719,13 @@ async function setInviteStatus(inv, status) {
   await dbx.update('invites', inv.id, Object.assign({ status, statusAt: nowIso(), statusBy: store.me.id || null }, status === 'revoked' ? { revokedAt: nowIso() } : {}));
   logEvent(status === 'revoked' ? 'member.revoke' : 'member.reinstate', { pid: inv.accountType === 'customer' ? inv.accountId : undefined, ref: inv.id, refName: inv.email, scope: inv.accountType === 'agency' ? 'agency' : undefined, text: (status === 'revoked' ? 'Removed access for ' : 'Restored access for ') + inv.email + ' (' + accountName(inv.accountType, inv.accountId) + ')' });
 }
-async function setInviteRole(inv, role) {
-  await dbx.update('invites', inv.id, { role, roleChangedAt: nowIso(), roleChangedBy: store.me.id || null });
-  logEvent('member.role', { pid: inv.accountType === 'customer' ? inv.accountId : undefined, ref: inv.id, refName: inv.email, scope: inv.accountType === 'agency' ? 'agency' : undefined, text: 'Changed ' + inv.email + ' to ' + roleName(inv.accountType, role) });
+async function setInviteRole(inv, role, access) {
+  const cur = invRole(inv);
+  access = role === 'member' ? (access || cur.access) : 'edit';
+  await dbx.update('invites', inv.id, { role, access, roleChangedAt: nowIso(), roleChangedBy: store.me.id || null });
+  logEvent('member.role', { pid: inv.accountType === 'customer' ? inv.accountId : undefined, ref: inv.id, refName: inv.email, scope: inv.accountType === 'agency' ? 'agency' : undefined, text: 'Changed ' + inv.email + ' to ' + roleName(inv.accountType, role, access) });
 }
+const setInviteAccess = (inv, access) => setInviteRole(inv, 'member', access);
 async function acceptInvite(inv, via) {
   const me = store.me;
   if (via === 'email' && (!me.email || me.email !== inv.email)) throw { friendly: 'Your signed-in email does not match this invitation.' };
@@ -691,7 +735,7 @@ async function acceptInvite(inv, via) {
   const upd = { acceptedBy: me.id, acceptedAt: nowIso(), verifiedVia: via, acceptedEmail: me.email || '' };
   if (inv.status === 'pending') upd.status = 'accepted';
   await dbx.update('invites', inv.id, upd);
-  logEvent('member.join', { pid: inv.accountType === 'customer' ? inv.accountId : undefined, ref: inv.id, refName: inv.email, scope: inv.accountType === 'agency' ? 'agency' : undefined, text: (me.name || inv.email) + ' joined ' + accountName(inv.accountType, inv.accountId) + ' as ' + roleName(inv.accountType, inv.role) + ' (verified by ' + (via === 'email' ? 'account email' : 'invitation code') + ')' });
+  logEvent('member.join', { pid: inv.accountType === 'customer' ? inv.accountId : undefined, ref: inv.id, refName: inv.email, scope: inv.accountType === 'agency' ? 'agency' : undefined, text: (me.name || inv.email) + ' joined ' + accountName(inv.accountType, inv.accountId) + ' as ' + roleName(inv.accountType, inv) + ' (verified by ' + (via === 'email' ? 'account email' : 'invitation code') + ')' });
 }
 async function findInviteByCode(code, type) {
   const c = normCode(code); if (c.length < 8) return null;
@@ -702,13 +746,13 @@ function invitationText(inv, code) {
   const agency = accountName('agency');
   if (HOSTED) {
     const type = inv.type || inv.accountType; const origin = location.origin;
-    return 'You are invited to ' + agency + ' Partner Hub as ' + roleName(type, inv.role) + (type === 'customer' ? ' for ' + accountName('customer', inv.accountId) : '') + '.\n\n'
+    return 'You are invited to ' + agency + ' Partner Hub as ' + roleName(type, inv) + (type === 'customer' ? ' for ' + accountName('customer', inv.accountId) : '') + '.\n\n'
       + 'Create your account: ' + origin + '/login?code=' + encodeURIComponent(code) + '&email=' + encodeURIComponent(inv.email) + '\n\n'
       + 'Or open ' + origin + '/login, choose "Create account" and enter:\n  Email: ' + inv.email + '\n  Invitation code: ' + code + '\n\n'
       + 'Already have a Partner Hub account? Sign in and enter the code on the welcome screen.\nThe code works once and only for this invitation.';
   }
   const link = (store.settings && store.settings.workspaceLink) || '[workspace link]';
-  return 'You are invited to ' + agency + ' Partner Hub as ' + roleName(inv.type || inv.accountType, inv.role) + (((inv.type || inv.accountType) === 'customer') ? ' for ' + accountName('customer', inv.accountId) : '') + '.\n\n'
+  return 'You are invited to ' + agency + ' Partner Hub as ' + roleName(inv.type || inv.accountType, inv) + (((inv.type || inv.accountType) === 'customer') ? ' for ' + accountName('customer', inv.accountId) : '') + '.\n\n'
     + '1. Open ' + link + '\n2. Sign in to Claude with ' + inv.email + '\n3. Choose "' + ((inv.type || inv.accountType) === 'agency' ? 'Agency' : 'Customer') + '" and join. If the page asks for a code, enter: ' + code + '\n\nThe code works once and only for this invitation.';
 }
 
@@ -760,7 +804,7 @@ async function purgePartnership(p) {
 /* ---------- backup & restore ---------- */
 const BACKUP_COLS = ['settings', 'partnerships', 'projects', 'influencers', 'files', 'filetext', 'invites', 'members', 'audit'];
 async function exportBackup() {
-  const cols = BACKUP_COLS.concat(store.me.isOwner ? ['finance'] : []);
+  const cols = BACKUP_COLS.concat(currentRole && currentRole.canFinance ? ['finance'] : []);
   const collections = {}, counts = {};
   for (const c of cols) { const snap = await CAP.db.collection(c).limit(1000).get(); collections[c] = snap.docs.map(d => ({ id: d.id, data: d.data() })); counts[c] = collections[c].length; }
   const payload = { format: 'gm-partner-hub-backup', version: 1, exportedAt: nowIso(), exportedBy: store.me.id || null, agencyName: accountName('agency'), counts, collections };
@@ -776,7 +820,7 @@ function readBackup(text) {
 }
 async function restoreBackup(j, overwrite, onProgress) {
   const res = { created: 0, overwritten: 0, merged: 0, skipped: 0 };
-  const cols = Object.keys(j.collections).filter(c => BACKUP_COLS.includes(c) || (c === 'finance' && store.me.isOwner));
+  const cols = Object.keys(j.collections).filter(c => BACKUP_COLS.includes(c) || (c === 'finance' && !!(currentRole && currentRole.canFinance)));
   const total = cols.reduce((t, c) => t + j.collections[c].length, 0); let n = 0;
   for (const c of cols) {
     for (const d of j.collections[c]) {

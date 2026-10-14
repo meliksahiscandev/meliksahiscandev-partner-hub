@@ -3,7 +3,7 @@
 Ajans (Games Medya) ile markalar (ör. Unilever) arasında influencer kampanyalarını debrief'ten sonuca kadar yöneten platform.
 Partnership → dokümanlar ve Claude özeti → master agreement'lar ve markalar → projeler ve deliverable'lar →
 5 aşama: Masterfile onayı, Content × Influencer eşleşmesi, içerik onayı, yayın (link + otomatik screenshot), performans verisi.
-Ayrıca yalnız sahibin gördüğü finans bölümü, ekip/müşteri üyelikleri, aktivite kaydı, dosya bütünlüğü ve yedekleme.
+Ayrıca yalnız sahip ve ajans adminlerinin gördüğü finans bölümü, ekip/müşteri üyelikleri, aktivite kaydı, dosya bütünlüğü ve yedekleme.
 
 ## Adres ve hesaplar
 
@@ -17,6 +17,9 @@ Ayrıca yalnız sahibin gördüğü finans bölümü, ekip/müşteri üyelikleri
 `main` dalına her push: testler (iki rol uçtan uca) → Cloudflare'e deploy. Pull request'lerde yalnız testler çalışır.
 GitHub secret'ları: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (zorunlu); `ANTHROPIC_API_KEY` (özet, Excel/görsel okuma),
 `APIFY_TOKEN` (takipçi/ER, post metrikleri), `RESEND_API_KEY` (davet e-postası) — eklendiklerinde özellik kendiliğinden açılır.
+Claude anahtarı bir workspace'e bağlı olmalı (Console → Workspaces → ilgili workspace → API keys). Workspace'siz bir anahtar kullanılacaksa
+`ANTHROPIC_WORKSPACE_ID` secret'ı da eklenir. Her deploy'dan sonra "Quick provider check" adımı Claude/Apify/Resend'i dener (yalnız uyarı verir);
+"Provider probe" iş akışı her pazartesi gerçek ölçüm yapar (bir PR'a `probe` etiketi eklemek de çalıştırır).
 
 ## Mimari
 
@@ -27,11 +30,16 @@ GitHub secret'ları: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (zorunlu); 
 | Sunucu: Worker + tek SQLite Durable Object | `hosted/src/worker.js` |
 | Tarayıcı tarafı sunucu bağlantısı (`window.claude.use` uyumlu) | `hosted/client/runtime.js` |
 | Giriş sayfası | `hosted/client/login.html` |
-| Testler | `test/e2e.py` (Artifact), `test/hosted_e2e.py` (sunucu, iki hesap) |
+| Testler | `test/e2e.py` (Artifact), `test/hosted_e2e.py` (sunucu, iki hesap), `test/reliability.mjs` (sağlayıcı hataları + yük), `test/probe.mjs` (canlı sağlayıcı ölçümü, yalnız GitHub Actions'ta) |
 | Ajanlar ve Ops Center | `agents/` |
 
-Sunucu her okuma/yazmayı role göre kontrol eder: müşteri yalnız kendi partnership'ini görür, finans yalnız sahibe açıktır,
-müşteri yalnız onay/yorum alanlarını yazabilir. Dosyalar SHA-256 ile doğrulanır; tüm işlemler gün gün aktivite kaydına yazılır.
+Sunucu her okuma/yazmayı role göre kontrol eder: müşteri yalnız kendi partnership'ini görür, finans yalnız sahip ve ajans adminlerine açıktır,
+müşteri yalnız onay/yorum alanlarını yazabilir.
+
+Roller: Ajans tarafında Sahip, Admin ve Üye; marka tarafında (her partnership için) Admin ve Üye. Üyelerin erişimi **Edit** ya da **View**'dur
+ve admin bunu Team & access (ajans) veya partnership → Members (marka) listesinden istediği an değiştirir. Ajans üyeleri finansı, ekip yönetimini,
+ayarları ve brief özetindeki bütçe satırını görmez; View üyeler hiçbir şey yazamaz. Marka üyesi Edit ise onay/yorum yapar, View ise yalnız izler.
+Eski davetlerdeki `approver` = Üye·Edit, `viewer` = Üye·View olarak okunur. Dosyalar SHA-256 ile doğrulanır; tüm işlemler gün gün aktivite kaydına yazılır.
 
 ## Yerel geliştirme
 
@@ -40,4 +48,5 @@ npm ci --prefix hosted && npm ci --prefix test && pip install playwright pillow 
 python3 build.py
 cd hosted && npx wrangler dev --config wrangler.test.toml --port 8787   # test hesapları: owner@test.local / owner-pass-123, buyer@unilever.test / buyer-pass-123
 python3 test/hosted_e2e.py http://localhost:8787
+node test/reliability.mjs http://localhost:8787
 ```

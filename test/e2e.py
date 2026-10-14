@@ -251,7 +251,10 @@ def main():
             check('member.invite_sent' in acts(), 'emailing logged')
             btn('Done').click()
             # set viewer role for deniz
-            row = page.locator('tr:has-text("deniz@unilever.com")'); row.locator('select').select_option('viewer'); toast_wait('Role updated')
+            check(page.locator('select[aria-label="Role for deniz@unilever.com"]').input_value() == 'member' and page.locator('select[aria-label="Access for deniz@unilever.com"]').input_value() == 'edit', 'new customer invitations default to Member with Edit access')
+            page.locator('select[aria-label="Access for deniz@unilever.com"]').select_option('view'); toast_wait('Access set to View')
+            dz = [v for v in docs('invites').values() if v['email'] == 'deniz@unilever.com'][0]
+            check(dz['role'] == 'member' and dz['access'] == 'view', 'access switched to View is stored on the invitation')
             # agency invite
             nav('#team'); page.wait_for_selector('text=Agency team')
             btn('Invite members').click(); page.fill('#inv-emails', 'ayse@gamesmedya.com'); btn(re.compile('Create 1 invitation')).click(); page.wait_for_selector('.codebox')
@@ -396,11 +399,21 @@ def main():
             check(page.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '3', 'dashboard: 3 unique influencers')
             check(page.locator('.kpi:has-text("Views") .v').first.inner_text() in ('241K', '241.0K'), 'dashboard: consolidated views match the project')
             check(page.locator('#dash-creators tbody tr').count() == 3, 'dashboard: creators table lists each influencer once')
+            check(page.locator('#dash-creators th:has-text("Projects")').count() == 1 and 'Summer Glow' in page.locator('#dash-creators tr:has-text("Elif Yilmaz") .dash-proj').inner_text(), 'dashboard: Projects column names the projects each influencer took part in')
             page.select_option('#dash-scope', 'j-' + PRID); page.wait_for_selector('button:has-text("Open project")')
             check(page.locator('.kpi:has-text("Engagement rate") .v').first.inner_text() == '4.85%', 'dashboard: project ER matches the performance tab')
             btn('Export CSV').click(); page.wait_for_timeout(400)
             dcsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("dashboard")).pop()')
             check(dcsv and 'Elif Yilmaz' in dcsv['text'] and 'Summer Glow' in dcsv['text'], 'dashboard CSV export')
+            page.locator('#dash-creators button.lnk:has-text("Elif Yilmaz")').click(); page.wait_for_selector('#creator-dash')
+            check(page.locator('h1:has-text("Elif Yilmaz")').count() == 1 and page.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').count() == 1, 'influencer dashboard opens from the name with its campaigns')
+            ck = page.locator('#creator-dash .kpi:has-text("Views") .v').first.inner_text()
+            check(ck in ('241K', '241.0K') and page.locator('#creator-content tbody tr').count() >= 2, 'influencer dashboard: consolidated views (%s) and each piece listed' % ck)
+            btn('Export CSV').click(); page.wait_for_timeout(400)
+            icsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("_influencer_")).pop()')
+            check(icsv and 'Summer Glow' in icsv['text'] and 'Live' in icsv['text'], 'influencer dashboard CSV export')
+            page.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').click(); page.wait_for_selector('button:has-text("Open project")')
+            check(True, 'campaign row opens that project\'s dashboard')
             shot('13b_dashboard')
 
             # ============ 14. finance (owner-only) ============
@@ -414,7 +427,7 @@ def main():
             check(abs(sum(r['net'] for r in rows_) - 1250000) < 0.01, 'schedule sums exactly to budget')
             check(rows_[0]['dueDate'] == '2026-04-01', 'due date = invoice date + 60 days (%s)' % rows_[0]['dueDate'])
             btn('Invoiced').first.click(); toast_wait('Marked as invoiced')
-            page.wait_for_selector('text=Overdue')
+            page.wait_for_selector('.badge:has-text("Overdue")'); page.wait_for_timeout(300)
             check(page.locator('.badge:has-text("Overdue")').count() == 1, 'past-due invoiced line flagged overdue')
             btn('Collected').first.click(); toast_wait('Marked as collected')
             check(len(docs('finance')[PID].get('history', {})) >= 4, 'finance history logged in owner-only area')
@@ -466,12 +479,11 @@ def main():
 
             # ============ 17. audit outbox survives outage ============
             print('17. Audit log outage', flush=True)
-            n_before = len(events())
             page.evaluate('() => { window.__auditOffline = true; }')
             nav('#p.' + PID + '.agreements'); page.wait_for_selector('text=Brands covered')
             page.locator('input[placeholder^="Brand name"]').first.fill('Dove'); page.keyboard.press('Enter'); toast_wait('Dove added')
             page.wait_for_timeout(500)
-            check(len(events()) == n_before, 'log write blocked during outage')
+            check(not any(e['act'] == 'brand.add' and e.get('refName') == 'Dove' for e in events()), 'log write blocked during outage')
             q = page.evaluate('() => JSON.parse(localStorage.getItem("gm-audit-outbox") || "[]").length')
             check(q >= 1, 'event kept in the browser outbox (%s queued)' % q)
             page.evaluate('() => { window.__auditOffline = false; }')

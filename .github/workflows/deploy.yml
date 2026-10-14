@@ -62,6 +62,18 @@ jobs:
             echo "::error title=Hosted e2e::${msg}"
             exit 1
           fi
+      - name: Reliability and load (local Worker, injected provider failures)
+        run: |
+          set +e
+          node test/reliability.mjs http://localhost:8787 > reliability.log 2>&1; code=$?
+          cat reliability.log
+          m=$(grep '^METRICS' reliability.log | sed 's/%/%25/g')
+          [ -n "$m" ] && echo "::notice title=Load test (local, indicative)::${m}"
+          if [ "$code" != "0" ]; then
+            msg=$(grep -E "FAIL|ERROR|Error|RESULT" reliability.log | tail -n 20 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Reliability::${msg}"
+            exit 1
+          fi
       - name: Keep screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -73,6 +85,7 @@ jobs:
             wrangler.log
             e2e.log
             hosted.log
+            reliability.log
           retention-days: 14
   deploy:
     needs: test
@@ -97,6 +110,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: |
@@ -116,7 +130,7 @@ jobs:
           fi
           node -e '
             const out = {};
-            for (const k of ["ANTHROPIC_API_KEY", "APIFY_TOKEN", "RESEND_API_KEY"]) if (process.env[k]) out[k] = process.env[k];
+            for (const k of ["ANTHROPIC_API_KEY", "ANTHROPIC_WORKSPACE_ID", "APIFY_TOKEN", "RESEND_API_KEY"]) if (process.env[k]) out[k] = process.env[k];
             require("fs").writeFileSync("secrets.json", JSON.stringify(out));
             console.log("Secrets to set:", Object.keys(out).join(", ") || "none");
           '
@@ -135,3 +149,12 @@ jobs:
           echo "- Sign-in page: HTTP $LOGIN, /api/me without session: HTTP $ME" >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=Partner Hub::Deployed $VERSION to $URL — login $LOGIN, api/me $ME, health $(cat health.json 2>/dev/null | head -c 600)"
           [ "$LOGIN" = "200" ] && [ "$ME" = "401" ] || { echo "::error title=Smoke test::Unexpected answers after deploy (login $LOGIN, api/me $ME)"; exit 1; }
+      - name: Quick provider check (Claude, Apify account, email)
+        continue-on-error: true
+        env:
+          PROBE_QUICK: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: node test/probe.mjs
