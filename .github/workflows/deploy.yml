@@ -135,3 +135,25 @@ jobs:
           echo "- Sign-in page: HTTP $LOGIN, /api/me without session: HTTP $ME" >> "$GITHUB_STEP_SUMMARY"
           echo "::notice title=Partner Hub::Deployed $VERSION to $URL — login $LOGIN, api/me $ME, health $(cat health.json 2>/dev/null | head -c 600)"
           [ "$LOGIN" = "200" ] && [ "$ME" = "401" ] || { echo "::error title=Smoke test::Unexpected answers after deploy (login $LOGIN, api/me $ME)"; exit 1; }
+      - name: Public address (Cloudflare Pages in front of the Worker)
+        working-directory: hosted/pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          W=../node_modules/.bin/wrangler
+          $W pages project create gamesmedya-partner-hub --production-branch main 2>&1 | tail -n 3 || true
+          set +e
+          $W pages deploy --branch main --commit-dirty=true 2>&1 | tee pages.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" != "0" ]; then
+            msg=$(grep -vE '^\s*$' pages.log | tail -n 12 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Pages address::${msg}"
+            exit "$code"
+          fi
+          URL=https://gamesmedya-partner-hub.pages.dev
+          for i in $(seq 1 30); do curl -sf "$URL/api/health" > health.json && break; sleep 5; done
+          LOGIN=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login")
+          echo "- Public address: $URL (login HTTP $LOGIN)" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Public address::$URL — login $LOGIN, health $(cat health.json 2>/dev/null | head -c 300)"
