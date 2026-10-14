@@ -18,7 +18,9 @@ async function timed(url, init, timeoutMs) {
     return { status: res.status, ms: performance.now() - t0, body, headers: res.headers };
   } catch (e) { return { status: 0, ms: performance.now() - t0, error: e.name === 'TimeoutError' ? 'timeout' : String(e.message || e).slice(0, 120) }; }
 }
-const errOf = r => r.error || ((r.body && (r.body.error && (r.body.error.type || r.body.error.message) || r.body.message || r.body.name)) || '').toString().slice(0, 120);
+// Provider error type + message (these never contain the key); trimmed.
+const errOf = r => r.error || [r.body && r.body.error && r.body.error.type, r.body && ((r.body.error && r.body.error.message) || r.body.message)].filter(Boolean).join(': ').slice(0, 220);
+const ok2 = r => r.status >= 200 && r.status < 300;
 function row(provider, test, n, ok, lat, note) { rows.push({ provider, test, n, ok, p50: pct(lat, 0.5), p95: pct(lat, 0.95), max: lat.length ? Math.max(...lat) : null, note: note || '' }); }
 
 async function site() {
@@ -59,22 +61,22 @@ async function apify() {
   let okAll = 0;
   const ig = await run('apify~instagram-profile-scraper', { usernames: ['natgeo', 'nasa', 'instagram'] }, 120);
   const igItems = Array.isArray(ig.body) ? ig.body.filter(x => x && x.username) : [];
-  row('Apify', 'Instagram profiles, 3 in one run', 3, igItems.length, [ig.ms], ig.status === 200 ? (igItems.length < 3 ? 'some profiles missing' : '') : ig.status + ' ' + errOf(ig)); if (igItems.length) okAll++;
+  row('Apify', 'Instagram profiles, 3 in one run', 3, igItems.length, [ig.ms], ok2(ig) ? (igItems.length < 3 ? 'some profiles missing' : '') : ig.status + ' ' + errOf(ig)); if (igItems.length) okAll++;
   const tt = await run('clockworks~tiktok-profile-scraper', { profiles: ['tiktok', 'nba'], resultsPerPage: 3, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false }, 120);
   const ttItems = Array.isArray(tt.body) ? tt.body : [];
   const ttProfiles = new Set(ttItems.map(x => x && x.authorMeta && String(x.authorMeta.name).toLowerCase()).filter(Boolean));
-  row('Apify', 'TikTok profiles, 2 in one run', 2, ttProfiles.size, [tt.ms], tt.status === 200 ? ttItems.length + ' videos returned' : tt.status + ' ' + errOf(tt)); if (ttProfiles.size) okAll++;
+  row('Apify', 'TikTok profiles, 2 in one run', 2, ttProfiles.size, [tt.ms], ok2(tt) ? ttItems.length + ' videos returned' : tt.status + ' ' + errOf(tt)); if (ttProfiles.size) okAll++;
   const postUrl = (igItems.find(x => x.latestPosts && x.latestPosts.length) || { latestPosts: [{}] }).latestPosts[0].url;
   if (postUrl) {
     const p = await run('apify~instagram-scraper', { directUrls: [postUrl], resultsType: 'posts', resultsLimit: 1, addParentData: false }, 120);
     const it = Array.isArray(p.body) ? p.body[0] : null;
-    row('Apify', 'Instagram post metrics', 1, it && it.likesCount !== undefined ? 1 : 0, [p.ms], p.status === 200 ? '' : p.status + ' ' + errOf(p)); if (it) okAll++;
+    row('Apify', 'Instagram post metrics', 1, it && it.likesCount !== undefined ? 1 : 0, [p.ms], ok2(p) ? '' : p.status + ' ' + errOf(p)); if (it) okAll++;
   }
   const vid = (ttItems.find(x => x && x.webVideoUrl) || {}).webVideoUrl;
   if (vid) {
     const p = await run('clockworks~tiktok-scraper', { postURLs: [vid], resultsPerPage: 1, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false }, 120);
     const it = Array.isArray(p.body) ? p.body[0] : null;
-    row('Apify', 'TikTok video metrics', 1, it && it.playCount !== undefined ? 1 : 0, [p.ms], p.status === 200 ? '' : p.status + ' ' + errOf(p)); if (it) okAll++;
+    row('Apify', 'TikTok video metrics', 1, it && it.playCount !== undefined ? 1 : 0, [p.ms], ok2(p) ? '' : p.status + ' ' + errOf(p)); if (it) okAll++;
   }
   if (!okAll) down = true;
 }
