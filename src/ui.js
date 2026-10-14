@@ -121,9 +121,9 @@ function Router() {
   if (v === 'dashboards') return html`<${DashboardsPage} key=${route.id || 'all'} id=${route.id || null}/>`;
   if (v === 'activity') return html`<${ActivityPage}/>`;
   if (v === 'files') return html`<${FilesPage}/>`;
-  if (v === 'team' && role.isAgency) return html`<${TeamPage}/>`;
-  if (v === 'finance' && role.isOwner) return html`<${FinancePage}/>`;
-  if (v === 'settings' && role.canAgency) return html`<${SettingsPage}/>`;
+  if (v === 'team' && role.isAdmin) return html`<${TeamPage}/>`;
+  if (v === 'finance' && role.canFinance) return html`<${FinancePage}/>`;
+  if (v === 'settings' && role.isAdmin) return html`<${SettingsPage}/>`;
   return html`<${Overview}/>`;
 }
 function Sidebar() {
@@ -149,10 +149,10 @@ function Sidebar() {
       <div className="nav-group">Operations</div>
       ${nb('activity', 'Activity log', 'pulse', s.outboxN ? html`<span className="cnt hot" title="Events waiting to sync">${s.outboxN}</span>` : null)}
       ${nb('files', 'Files & storage', 'db')}
-      ${role.isAgency ? html`<${Fragment}><div className="nav-group">Administration</div>
+      ${role.isAdmin ? html`<${Fragment}><div className="nav-group">Administration</div>
         ${nb('team', 'Team & access', 'users', pendingInv ? html`<span className="cnt">${pendingInv}</span>` : null)}
-        ${role.isOwner ? nb('finance', 'Finance', 'coin') : null}
-        ${role.canAgency ? nb('settings', 'Settings & backup', 'gear') : null}<//>` : null}
+        ${role.canFinance ? nb('finance', 'Finance', 'coin') : null}
+        ${nb('settings', 'Settings & backup', 'gear')}<//>` : null}
     </nav>` : html`<div className="small" style=${{ padding: '0 6px' }}>${role.status === 'loading' ? 'Connecting…' : 'Sign in to continue'}</div>`}
     <div className="side-foot">
       ${s.me.id ? html`<div className="me"><${Avatar} src=${s.me.avatar} name=${s.me.name}/><div style=${{ minWidth: 0, flex: 1 }}><div className="n">${s.me.name || 'You'}</div><div className="r">${role.status === 'ok' ? role.label : 'Not joined'}</div></div>
@@ -178,6 +178,7 @@ function Topbar({ onMenu }) {
     <div className="spacer"></div>
     ${role.status === 'ok' ? html`<${SearchBox}/>` : null}
     ${role.preview ? html`<${Badge} cls="warn">Customer preview<//>` : null}
+    ${role.viewOnly ? html`<span className="badge neutral" id="view-only" title="An admin can give you edit access in Team & access.">View only</span>` : null}
     ${s.phase === 'connecting' ? html`<span className="t3 small row nw"><${Spin}/> Connecting</span>` : null}
   </div>`;
 }
@@ -244,7 +245,7 @@ function Join() {
       <button className="rolec" role="radio" aria-pressed=${type === 'agency'} aria-checked=${type === 'agency'} onClick=${() => setType('agency')}><span className="rt">Agency</span><span className="rd">${agency} team. Partnerships, masterfiles, content and delivery.</span></button>
       <button className="rolec" role="radio" aria-pressed=${type === 'customer'} aria-checked=${type === 'customer'} onClick=${() => setType('customer')}><span className="rt">Customer</span><span className="rd">Brand or partner company. Approvals, progress and results.</span></button>
     </div>`}
-    ${list.length ? html`<div className="stack s8"><div className="eyebrow">Invitations for ${email}</div>${list.map(i => html`<div key=${i.id} className="between sub-card" style=${{ flexDirection: 'row' }}><div><div style=${{ fontWeight: 600 }}>${i.accountType === 'customer' && i.accountName ? i.accountName : accountName(i.accountType, i.accountId)}</div><div className="small t3">${roleName(i.accountType, i.role)} · invited ${fmtDate(i.createdAt)}</div></div><button className="btn btn-primary" disabled=${busy} onClick=${() => join(i, 'email')}>${i.status === 'accepted' ? 'Rejoin' : 'Join'}</button></div>`)}</div>`
+    ${list.length ? html`<div className="stack s8"><div className="eyebrow">Invitations for ${email}</div>${list.map(i => html`<div key=${i.id} className="between sub-card" style=${{ flexDirection: 'row' }}><div><div style=${{ fontWeight: 600 }}>${i.accountType === 'customer' && i.accountName ? i.accountName : accountName(i.accountType, i.accountId)}</div><div className="small t3">${roleName(i.accountType, i)} · invited ${fmtDate(i.createdAt)}</div></div><button className="btn btn-primary" disabled=${busy} onClick=${() => join(i, 'email')}>${i.status === 'accepted' ? 'Rejoin' : 'Join'}</button></div>`)}</div>`
       : html`<p className="t2 small">${email ? 'No ' + (HOSTED ? '' : type + ' ') + 'invitation is waiting for ' + email + '.' : ''} If you received an invitation code, enter it below.</p>`}
     <div className="stack s8"><label className="field"><span>Invitation code</span><div className="row nw"><input className="input mono" id="join-code" value=${code} placeholder="XXXXX-XXXXX" onChange=${e => setCode(e.target.value)} onKeyDown=${e => { if (e.key === 'Enter') useCode(); }} style=${{ letterSpacing: '.08em' }}/><button className="btn" disabled=${busy || normCode(code).length < 8} onClick=${useCode}>Verify & join</button></div><small>The code is in the invitation email. It works once and only for the address it was sent to.</small></label></div>
   </div></div>`;

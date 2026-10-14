@@ -156,26 +156,38 @@ export class Workspace extends DurableObject {
     if (!row || row.expires < Date.now() || row.disabled) return null;
     return { id: row.id, email: row.email, name: row.name, is_owner: !!row.is_owner };
   }
+  // Roles: agency owner | admin | member (edit or view); customer per account: admin | edit | view.
+  // Legacy customer roles: approver = edit, viewer = view.
   access(user) {
     if (!user) return { type: null, accounts: {} };
-    if (user.is_owner) return { type: 'agency', role: 'owner', accounts: {} };
+    if (user.is_owner) return { type: 'agency', role: 'owner', perm: 'edit', accounts: {} };
     const mem = this.getDoc('members/' + user.id);
     const ids = mem ? Object.keys(mem.data.inviteIds || {}) : [];
-    let agencyRole = null; const accounts = {};
+    let agency = null; const accounts = {};
+    const rank = { view: 1, edit: 2, admin: 3 };
     for (const id of ids) {
       const inv = this.getDoc('invites/' + id); if (!inv) continue; const i = inv.data;
       if (i.status !== 'accepted' || i.acceptedBy !== user.id) continue;
-      if (i.accountType === 'agency') agencyRole = i.role || 'member';
-      else { const p = this.getDoc('partnerships/' + i.accountId); if (p && (p.data.status || 'active') === 'active') accounts[i.accountId] = i.role || 'viewer'; }
+      const lvl = i.role === 'admin' ? 'admin' : i.role === 'viewer' ? 'view' : i.role === 'approver' ? 'edit' : (i.access === 'view' ? 'view' : 'edit');
+      if (i.accountType === 'agency') { if (!agency || rank[lvl] > rank[agency]) agency = lvl; }
+      else { const p = this.getDoc('partnerships/' + i.accountId); if (p && (p.data.status || 'active') === 'active' && (!accounts[i.accountId] || rank[lvl] > rank[accounts[i.accountId]])) accounts[i.accountId] = lvl; }
     }
-    if (agencyRole) return { type: 'agency', role: agencyRole, accounts: {} };
+    if (agency) return { type: 'agency', role: agency === 'admin' ? 'admin' : 'member', perm: agency === 'view' ? 'view' : 'edit', accounts: {} };
     if (Object.keys(accounts).length) return { type: 'customer', accounts };
     return { type: null, accounts: {} };
   }
+  agencyAdmin(acc) { return acc.type === 'agency' && (acc.role === 'owner' || acc.role === 'admin'); }
+  agencyEdit(acc) { return acc.type === 'agency' && (acc.role === 'owner' || acc.role === 'admin' || acc.perm === 'edit'); }
   readFilter(acc, user, path, data) {
     const [col, id] = path.split('/');
-    if (col === 'finance') return acc.type === 'agency' && acc.role === 'owner' ? data : undefined;
-    if (acc.type === 'agency') { if (col === 'invites' && !['owner', 'admin'].includes(acc.role)) { const c = Object.assign({}, data); delete c.codeHash; return c; } return data; }
+    if (col === 'finance') return this.agencyAdmin(acc) ? data : undefined;
+    if (acc.type === 'agency') {
+      if (this.agencyAdmin(acc)) return data;
+      // Agency members: no invitation code hashes, no budget lines from the brief summary.
+      if (col === 'invites') { const c = Object.assign({}, data); delete c.codeHash; return c; }
+      if (col === 'partnerships' && data.summary && data.summary.data && data.summary.data.budget) { const c = clone(data); c.summary.data.budget = ''; return c; }
+      return data;
+    }
     if (col === 'settings') { const c = Object.assign({}, data); return c; }
     if (col === 'members') return id === user.id ? data : undefined;
     if (col === 'invites') {
@@ -202,8 +214,8 @@ export class Workspace extends DurableObject {
   }
   canWrite(acc, user, op, path, data, cur) {
     const [col, id] = path.split('/');
-    const isAg = acc.type === 'agency', owner = isAg && acc.role === 'owner', admin = isAg && (acc.role === 'owner' || acc.role === 'admin');
-    if (col === 'finance') return owner;
+    const isAg = acc.type === 'agency', owner = isAg && acc.role === 'owner', admin = this.agencyAdmin(acc);
+    if (col === 'finance') return admin;
     if (col === 'audit') {
       if (op === 'delete') return false;
       if (!acc.type) return false;
@@ -222,10 +234,10 @@ export class Workspace extends DurableObject {
       if (acc.type === 'customer' && op !== 'delete') { const t = Object.assign({}, cur ? cur.data : {}, data); return t.accountType === 'customer' && acc.accounts[t.accountId] === 'admin' && (!data.status || ['pending', 'revoked', 'accepted'].includes(data.status)) && (!data.acceptedBy || (cur && cur.data.acceptedBy === data.acceptedBy)); }
       return false;
     }
-    if (isAg) return true;
+    if (isAg) return this.agencyEdit(acc);
     if (acc.type !== 'customer' || op !== 'update' || !cur) return false;
     const r = acc.accounts[cur.data.partnershipId];
-    if (r !== 'admin' && r !== 'approver') return false;
+    if (r !== 'admin' && r !== 'edit') return false;
     if (col === 'projects') return onlyKeys(data, ['masterfile', 'updatedAt']) && onlyKeys(data.masterfile || {}, ['status', 'approvedAt', 'approvedBy', 'approvedRole']) && (!data.masterfile || !data.masterfile.status || data.masterfile.status === 'approved') && (cur.data.masterfile || {}).status === 'in_review';
     if (col === 'influencers') {
       if (!onlyKeys(data, ['state', 'decided', 'comments', 'assignments', 'updatedAt'])) return false;
@@ -464,7 +476,7 @@ export class Workspace extends DurableObject {
 
   /* ---------- files ---------- */
   async upload(req, user) {
-    const acc = this.access(user); if (acc.type !== 'agency') return fail('not_granted', 'Only the agency can upload files.', 403);
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Only agency members with edit access can upload files.', 403);
     const type = String(req.headers.get('x-content-type') || '').toLowerCase();
     if (!ACCEPTED_TYPES.has(type)) return fail('unsupported_type', 'This file type cannot be stored.', 415);
     const buf = await req.arrayBuffer();
@@ -482,7 +494,7 @@ export class Workspace extends DurableObject {
     return json({ assets, usage: { files: assets.length, bytes: assets.reduce((t, a) => t + a.sizeBytes, 0), maxFiles: 20000, maxBytes: 1024 * 1024 * 1024 } });
   }
   deleteAsset(user, id) {
-    const acc = this.access(user); if (acc.type !== 'agency') return fail('not_granted', 'Only the agency can delete files.', 403);
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Only agency members with edit access can delete files.', 403);
     const had = this.one('SELECT id FROM blob_meta WHERE id=?', id);
     this.sql.exec('DELETE FROM blobs WHERE id=?', id); this.sql.exec('DELETE FROM blob_meta WHERE id=?', id);
     return json({ deleted: !!had });
@@ -503,7 +515,7 @@ export class Workspace extends DurableObject {
 
   /* ---------- Claude ---------- */
   async claude(req, user) {
-    const acc = this.access(user); if (acc.type !== 'agency') return fail('not_granted', 'Claude features are for the agency.', 403);
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Claude features are for agency members with edit access.', 403);
     const b = await req.json().catch(() => ({}));
     const prompt = String(b.prompt || ''); if (!prompt) return fail('invalid_request', 'Empty prompt.');
     if (!this.throttle('claude:' + user.id, 120, 60 * 60000)) return fail('rate_limited', 'Claude limit reached for this hour.', 429);
@@ -526,7 +538,7 @@ export class Workspace extends DurableObject {
     return Array.isArray(j) ? j : [];
   }
   async socialProfile(req, user) {
-    const acc = this.access(user); if (acc.type !== 'agency') return fail('not_granted', 'Agency only.', 403);
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     const platform = b.platform === 'tiktok' ? 'tiktok' : 'instagram'; const handle = String(b.handle || '').replace(/^@/, '').trim();
     if (!/^[A-Za-z0-9._]{1,40}$/.test(handle)) return fail('bad_request', 'Enter a valid username.');
@@ -555,7 +567,7 @@ export class Workspace extends DurableObject {
     } catch (e) { return fail(e.code || 'upstream_error', 'Could not fetch the profile: ' + (e.message || e), 502); }
   }
   async socialPost(req, user) {
-    const acc = this.access(user); if (acc.type !== 'agency') return fail('not_granted', 'Agency only.', 403);
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     let u; try { u = new URL(String(b.url || '')); } catch (e) { return fail('bad_request', 'Enter the post link.'); }
     const platform = /tiktok\.com$/i.test(u.hostname) ? 'tiktok' : /instagram\.com$/i.test(u.hostname) ? 'instagram' : null;
@@ -575,7 +587,7 @@ export class Workspace extends DurableObject {
     } catch (e) { return fail(e.code || 'upstream_error', 'Could not read the post: ' + (e.message || e), 502); }
   }
   async capture(req, user) {
-    const acc = this.access(user); if (acc.type !== 'agency') return fail('not_granted', 'Agency only.', 403);
+    const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     let u; try { u = new URL(String(b.url || '')); } catch (e) { return fail('bad_request', 'Enter the post link.'); }
     if (!/(^|\.)(instagram|tiktok)\.com$/i.test(u.hostname)) return fail('bad_request', 'Only Instagram and TikTok links can be captured.');
@@ -612,7 +624,7 @@ export class Workspace extends DurableObject {
     for (const t of to) {
       const inv = invites.find(i => i.email === t);
       if (!inv) return fail('bad_request', 'Emails can only be sent to invited addresses.', 403);
-      const admin = acc.type === 'agency' && ['owner', 'admin'].includes(acc.role);
+      const admin = this.agencyAdmin(acc);
       const custAdmin = acc.type === 'customer' && inv.accountType === 'customer' && acc.accounts[inv.accountId] === 'admin';
       if (!admin && !custAdmin) return fail('not_granted', 'Only admins can send invitations.', 403);
     }
@@ -631,7 +643,7 @@ function stubProfile(platform, handle) { return { platform, handle, followers: p
 function stubPost(platform) { return { platform, metrics: { views: 88000, likes: 4100, comments: 120, shares: platform === 'tiktok' ? 60 : null, saves: platform === 'tiktok' ? 90 : null }, postedAt: nowIso(), owner: 'stub', source: 'stub' }; }
 function stubClaude(prompt, images) {
   if (/=== PROJECT PROTOCOL ===/.test(prompt)) return JSON.stringify({ summary: 'Stub project summary written from the protocol (test mode). Protocol marker: ' + (prompt.includes('PROTOCOL-MARKER') ? 'seen' : 'missing') + '.', objective: 'Drive trial of the summer range', deliverables: ['3 Instagram Reels'], timeline: 'June–August', kpis: ['2M views'], mandatories: ['#reklam'] });
-  if (/summarize the partnership/.test(prompt)) return JSON.stringify({ headline: 'Stub summary of the partnership', overview: 'Generated without calling Claude (test mode). Images read: ' + (images || 0) + '. Text marker: ' + (prompt.includes('DEBRIEF-MARKER') ? 'seen' : 'missing') + '.', objectives: ['Awareness'], audience: '', key_messages: [], deliverables: [], timeline: '', kpis: [], budget: '', mandatories: [], restrictions: [], open_questions: [], documents: [] });
+  if (/summarize the partnership/.test(prompt)) return JSON.stringify({ headline: 'Stub summary of the partnership', overview: 'Generated without calling Claude (test mode). Images read: ' + (images || 0) + '. Text marker: ' + (prompt.includes('DEBRIEF-MARKER') ? 'seen' : 'missing') + '.', objectives: ['Awareness'], audience: '', key_messages: [], deliverables: [], timeline: '', kpis: [], budget: 'Stub budget line', mandatories: [], restrictions: [], open_questions: [], documents: [] });
   if (/performance reports/.test(prompt)) { const ids = Array.from(prompt.matchAll(/- id ([a-z0-9]+) \|/g)).map(m => m[1]); return JSON.stringify({ items: ids.map(id => ({ assignmentId: id, views: 50000, reach: 40000, likes: 2000, comments: 80, shares: 20, saves: 40, er: null, note: 'stub' })) }); }
   return '{}';
 }

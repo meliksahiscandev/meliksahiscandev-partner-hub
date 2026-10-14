@@ -42,7 +42,7 @@ function Overview() {
       <${Kpi} l="Open change requests" v=${ms.reduce((t, m) => t + m.changeRows + m.asgChanges, 0)} cls=${ms.reduce((t, m) => t + m.changeRows + m.asgChanges, 0) ? 'crit' : ''} s="from customers"/>
       <${Kpi} l="Views reported" v=${fmtK(views)} s="from performance data"/>
     </div>
-    ${role.isOwner ? html`<${FinanceStrip} compact=${true}/>` : null}
+    ${role.canFinance ? html`<${FinanceStrip} compact=${true}/>` : null}
     <div className="split">
       <div className="stack s16">
         ${items.length ? html`<${Card} title="Needs attention" flush=${true}><div className="feed">${items.map((it, i) => html`<button key=${i} className="fev" style=${{ border: 0, borderBottom: '1px solid var(--line)', background: 'none', textAlign: 'left', cursor: 'pointer', width: '100%' }} onClick=${() => go(it.r)}><span className=${'ic ' + (it.cls === 'crit' ? 'crit' : it.cls === 'warn' ? 'warn' : 'primary')}><${Icon} n="alert" s=${13}/></span><span className="tx"><strong className="num">${it.n}</strong> ${it.t}</span><${Icon} n="chev" s=${14}/></button>`)}</div><//>` : null}
@@ -82,12 +82,12 @@ function PartnershipView({ id, tab }) {
   const prs = projectsOf(s, p.id);
   const members = invitesFor(s, 'customer', p.id).filter(i => i.status !== 'revoked');
   const tabs = [{ key: 'overview', label: 'Overview' }, { key: 'agreements', label: 'Agreements & brands' }, { key: 'projects', label: 'Projects', count: prs.length }, { key: 'files', label: 'Files', count: filesOf(s, p.id).length }, { key: 'members', label: 'Members', count: members.length }, { key: 'activity', label: 'Activity' }];
-  if (role.isOwner) tabs.push({ key: 'finance', label: 'Finance' });
+  if (role.canFinance) tabs.push({ key: 'finance', label: 'Finance' });
   const cur = tabs.some(t => t.key === tab) ? tab : 'overview';
   const myRole = role.isCustomer ? role.customerRole(p.id) : null;
   return html`<${Fragment}>
     <${PageHead} eyebrow=${'Customer account' + (p.demo ? ' · example data' : '')} title=${p.name}
-      meta=${html`<span className="t3 small">Created ${fmtDate(p.createdAt)}</span>${myRole ? html`<${Badge} cls="primary">${CUSTOMER_ROLES[myRole].label}<//>` : null}`}
+      meta=${html`<span className="t3 small">Created ${fmtDate(p.createdAt)}</span>${myRole ? html`<${Badge} cls="primary">${myRole === 'admin' ? 'Admin' : 'Member · ' + ACCESS[myRole].label}<//>` : null}`}
       actions=${role.canAgency ? html`${role.isAdmin ? html`<button className="btn btn-ghost" id="p-delete" onClick=${() => openModal('deletePartnership', { p })}><${Icon} n="trash" s=${15}/>Delete partnership</button>` : null}<button className="btn" onClick=${() => openModal('rename', { kind: 'partnership', item: p })}><${Icon} n="edit" s=${15}/>Rename</button><button className="btn btn-primary" onClick=${() => openModal('project', { partnershipId: p.id })}><${Icon} n="plus" s=${15}/>New project</button>` : null}/>
     <${MsaBanner} p=${p}/>
     <${Tabs} tabs=${tabs} value=${cur} onChange=${t => go({ view: 'partnership', id: p.id, tab: t })}/>
@@ -160,7 +160,7 @@ function SummaryPanel({ p, docs }) {
     ${sum ? html`<${Fragment}>
       ${sum.headline ? html`<p className="sum-head">${sum.headline}</p>` : null}
       ${sum.overview ? html`<p style=${{ maxWidth: '75ch' }}>${sum.overview}</p>` : null}
-      <div className="sum-grid">${sec('Objectives', sum.objectives)}${sec('Key messages', sum.key_messages)}${sec('Target audience', sum.audience)}${sec('Requested deliverables', sum.deliverables)}${sec('Timeline', sum.timeline)}${sec('KPIs', sum.kpis)}${role.canAgency ? sec('Budget & terms', sum.budget) : null}${sec('Mandatories', sum.mandatories)}${sec('Restrictions', sum.restrictions)}${sec('Open questions', sum.open_questions)}</div>
+      <div className="sum-grid">${sec('Objectives', sum.objectives)}${sec('Key messages', sum.key_messages)}${sec('Target audience', sum.audience)}${sec('Requested deliverables', sum.deliverables)}${sec('Timeline', sum.timeline)}${sec('KPIs', sum.kpis)}${role.isAdmin ? sec('Budget & terms', sum.budget) : null}${sec('Mandatories', sum.mandatories)}${sec('Restrictions', sum.restrictions)}${sec('Open questions', sum.open_questions)}</div>
       ${sum.documents && sum.documents.length ? html`<div className="sum-sec"><h3>Documents</h3><ul>${sum.documents.map((d, i) => html`<li key=${i}><span className="mono">${d.name}</span> — ${d.summary}</li>`)}</ul></div>` : null}
     <//>` : !job ? html`<${Empty}>${docs.length ? (role.canAgency ? 'Documents are uploaded. Press Summarize to have Claude read them.' : 'The agency has not generated the summary yet.') : 'Upload the debrief and presentations; the summary appears here.'}<//>` : null}
   <//>`;
@@ -416,15 +416,35 @@ function ActivityPage() {
 }
 
 /* ---------- members & invitations ---------- */
+function roleHelp(type) {
+  if (type === 'agency') return [
+    { k: 'owner', label: 'Owner', d: AGENCY_ROLES.owner.d },
+    { k: 'admin', label: 'Admin', d: AGENCY_ROLES.admin.d },
+    { k: 'edit', label: 'Member · Edit', d: 'Creates and runs partnerships, projects and masterfiles; uploads files and fetches data. No finance, team or settings.' },
+    { k: 'view', label: 'Member · View', d: 'Sees partnerships, projects and dashboards read-only. No finance, team or settings.' },
+  ];
+  return [
+    { k: 'admin', label: 'Admin', d: CUSTOMER_ROLES.admin.d },
+    { k: 'edit', label: 'Member · Edit', d: 'Approves creators and content and leaves comments.' },
+    { k: 'view', label: 'Member · View', d: 'Follows creators, content and results read-only.' },
+  ];
+}
+function RoleCell({ type, i, canManage }) {
+  const n = invRole(i); const roles = type === 'agency' ? AGENCY_ROLES : CUSTOMER_ROLES;
+  if (!canManage) return html`<span className="small">${roleName(type, i)}</span>`;
+  return html`<div className="row nw" style=${{ gap: '6px' }}>
+    <select className="input sm" style=${{ width: 'auto' }} value=${n.role} aria-label=${'Role for ' + i.email} onChange=${e => act(() => setInviteRole(i, e.target.value), 'Role updated')}>${['admin', 'member'].map(k => html`<option key=${k} value=${k}>${roles[k].label}</option>`)}</select>
+    ${n.role === 'member' ? html`<select className="input sm" style=${{ width: 'auto' }} value=${n.access} aria-label=${'Access for ' + i.email} onChange=${e => act(() => setInviteAccess(i, e.target.value), e.target.value === 'view' ? 'Access set to View' : 'Access set to Edit')}>${Object.keys(ACCESS).map(k => html`<option key=${k} value=${k}>${ACCESS[k].label}</option>`)}</select>` : html`<span className="xs t3">Full access</span>`}
+  </div>`;
+}
 function MembersPanel({ type, accountId }) {
   const { s, role, openModal } = useCtx();
   const canManage = type === 'agency' ? role.isAdmin : role.canInviteCustomer(accountId);
   const invs = invitesFor(s, type, accountId);
   usePeople(invs.map(i => i.acceptedBy).concat(invs.map(i => i.invitedBy)).concat(s.settings.ownerId ? [s.settings.ownerId] : []));
   const roles = type === 'agency' ? AGENCY_ROLES : CUSTOMER_ROLES;
-  const roleOpts = Object.keys(roles).filter(k => k !== 'owner');
   const statusBadge = i => i.status === 'accepted' ? html`<${Badge} cls="ok">Active<//>` : i.status === 'revoked' ? html`<${Badge} cls="crit">Removed<//>` : html`<div className="cs"><${Badge} cls="warn">Invited<//><span className="xs t3">${i.emailedAt ? 'Emailed ' + fmtDate(i.emailedAt) : 'Not emailed yet'}</span></div>`;
-  const newCodeFor = async i => { const code = await act(() => regenerateCode(i)); if (code && code !== true) openModal('inviteResult', { results: [{ id: i.id, email: i.email, code, type: i.accountType, accountId: i.accountId, role: i.role }] }); };
+  const newCodeFor = async i => { const code = await act(() => regenerateCode(i)); if (code && code !== true) openModal('inviteResult', { results: [{ id: i.id, email: i.email, code, type: i.accountType, accountId: i.accountId, role: i.role, access: i.access }] }); };
   const ownerId = s.settings.ownerId || (s.me.isOwner ? s.me.id : null);
   return html`<div className="stack s16">
     <${Card} title=${type === 'agency' ? 'Agency team' : 'Customer members'} sub=${accountName(type, accountId) + ' · ' + plural(invs.filter(i => i.status === 'accepted').length, 'active member') + ', ' + invs.filter(i => i.status === 'pending').length + ' invited'}
@@ -433,7 +453,7 @@ function MembersPanel({ type, accountId }) {
         ${type === 'agency' && ownerId ? html`<tr><td><div className="cs"><strong>${personName(ownerId)}</strong><span className="xs t3 mono">${personEmail(ownerId) || ''}</span></div></td><td><${Badge} cls="primary" nodot=${true}>Owner<//></td><td><${Badge} cls="ok">Active<//></td><td className="small t3">Workspace owner</td><td></td>${canManage ? html`<td></td>` : null}</tr>` : null}
         ${invs.length ? invs.map(i => html`<tr key=${i.id}>
           <td><div className="cs">${i.acceptedBy ? html`<strong>${personName(i.acceptedBy)}</strong>` : null}<span className=${'mono ' + (i.acceptedBy ? 'xs t3' : 'small')}>${i.email}</span></div></td>
-          <td>${canManage && i.status !== 'revoked' ? html`<select className="input sm" style=${{ width: 'auto' }} value=${i.role} aria-label=${'Role for ' + i.email} onChange=${e => act(() => setInviteRole(i, e.target.value), 'Role updated')}>${roleOpts.map(k => html`<option key=${k} value=${k}>${roles[k].label}</option>`)}</select>` : html`<span className="small">${roleName(type, i.role)}</span>`}</td>
+          <td><${RoleCell} type=${type} i=${i} canManage=${canManage && i.status !== 'revoked' && i.acceptedBy !== s.me.id}/></td>
           <td>${statusBadge(i)}</td>
           <td className="small">${i.status === 'accepted' ? (i.verifiedVia === 'email' ? html`<span className="row nw" style=${{ gap: '5px' }}><${Icon} n="shield" s=${13}/>Account email</span>` : html`<span className="row nw" style=${{ gap: '5px' }}><${Icon} n="lock" s=${13}/>Invitation code</span>`) : html`<span className="t3">Not joined yet</span>`}</td>
           <td><div className="cs small"><span>${personName(i.invitedBy)}</span><span className="xs t3">${fmtDate(i.createdAt)}</span></div></td>
@@ -443,8 +463,8 @@ function MembersPanel({ type, accountId }) {
     <//>
     ${canManage && HOSTED ? html`<div className="banner info"><${Icon} n="shield" s=${16}/><div className="b-body small"><div className="b-title">How email verification works</div>Each invitation is tied to one email address and carries a one-time code that is emailed to that address. Creating an account needs the code, which proves the person controls the invited mailbox. The code is stored only as a hash, works once, and the account is created for the invited address only. Removing access takes effect immediately.</div></div>` : null}
     ${canManage && !HOSTED ? html`<div className="banner info"><${Icon} n="shield" s=${16}/><div className="b-body small"><div className="b-title">How email verification works</div>Each invitation is tied to one email address and carries a one-time code that is emailed to that address (from your Gmail, or copied into your own email). Joining requires the code, which proves the person controls the invited mailbox; the code is stored only as a hash and works once. They also need access to this page itself: add the same email in the page's <strong>Share</strong> menu with <strong>Editor</strong> access so they can approve and comment.</div></div>` : null}
-    <${Card} title="Roles">
-      <div className="grid3">${Object.entries(roles).map(([k, r]) => html`<div key=${k} className="stack s6"><strong className="small">${r.label}</strong><span className="small t3">${r.d}</span></div>`)}</div>
+    <${Card} title="Roles and access" sub=${canManage ? 'Change a member between Edit and View at any time; it applies immediately.' : null}>
+      <div className="grid-roles">${roleHelp(type).map(r => html`<div key=${r.k} className="stack s6"><strong className="small">${r.label}</strong><span className="small t3">${r.d}</span></div>`)}</div>
     <//>
   </div>`;
 }
@@ -453,22 +473,21 @@ function TeamPage() {
 }
 function InviteModal({ type, accountId }) {
   const { closeModal, openModal } = useCtx();
-  const roles = type === 'agency' ? AGENCY_ROLES : CUSTOMER_ROLES;
-  const opts = Object.keys(roles).filter(k => k !== 'owner');
-  const [emails, setEmails] = useState(''); const [role, setRole] = useState(type === 'agency' ? 'member' : 'approver'); const [busy, setBusy] = useState(false);
+  const help = roleHelp(type).filter(r => r.k !== 'owner');
+  const [emails, setEmails] = useState(''); const [pick, setPick] = useState('edit'); const [busy, setBusy] = useState(false);
   const list = Array.from(new Set(emails.split(/[\s,;]+/).map(normEmail).filter(Boolean)));
   const bad = list.filter(e => !validEmail(e));
   const go = async () => {
     if (!list.length) return toast('Enter at least one email address.', 'warn');
     if (bad.length) return toast('Check these addresses: ' + bad.join(', '), 'warn');
     setBusy(true);
-    const r = await act(() => createInvites(list, type, accountId, role));
+    const r = await act(() => createInvites(list, type, accountId, pick === 'admin' ? 'admin' : 'member', pick === 'view' ? 'view' : 'edit'));
     setBusy(false);
     if (r && r !== true) { if (r.skipped.length) toast('Already invited: ' + r.skipped.join(', '), 'warn'); if (r.created.length) openModal('inviteResult', { results: r.created }); else closeModal(); }
   };
   return html`<${Modal} title=${'Invite to ' + accountName(type, accountId)} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${busy || !list.length} onClick=${go}>${busy ? 'Creating…' : 'Create ' + plural(list.length || 1, 'invitation')}</button><//>`}>
     <label className="field"><span>Email addresses</span><textarea className="input" id="inv-emails" value=${emails} onChange=${e => setEmails(e.target.value)} placeholder=${type === 'agency' ? 'name@gamesmedya.com' : 'name@unilever.com'}></textarea><small>Separate several addresses with commas or new lines. ${bad.length ? html`<span style=${{ color: 'var(--crit)' }}>Not valid: ${bad.join(', ')}</span>` : null}</small></label>
-    <div className="field"><span>Role</span><div className="stack s6">${opts.map(k => html`<label key=${k} className="row nw" style=${{ alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}><input type="radio" name="inv-role" checked=${role === k} onChange=${() => setRole(k)} style=${{ marginTop: '3px' }}/><span><strong className="small">${roles[k].label}</strong><span className="small t3"> — ${roles[k].d}</span></span></label>`)}</div></div>
+    <div className="field"><span>Role and access</span><div className="stack s6">${help.map(r => html`<label key=${r.k} className="row nw" style=${{ alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}><input type="radio" name="inv-role" value=${r.k} checked=${pick === r.k} onChange=${() => setPick(r.k)} style=${{ marginTop: '3px' }}/><span><strong className="small">${r.label}</strong><span className="small t3"> — ${r.d}</span></span></label>`)}</div><small>Admins can switch a member between Edit and View later in this list.</small></div>
   <//>`;
 }
 function InviteResultModal({ results }) {
@@ -482,7 +501,7 @@ function InviteResultModal({ results }) {
   return html`<${Modal} title=${plural(results.length, 'invitation') + ' ready'} wide=${true} onClose=${closeModal} footer=${html`<${Fragment}>${canEmail && !allSent ? html`<button className="btn" disabled=${!!busy} onClick=${sendAll}><${Icon} n="mail" s=${14}/>Email ${results.length > 1 ? 'all ' + results.length : 'it'}${EMAIL_VIA}</button>` : null}<button className="btn btn-primary" onClick=${closeModal}>Done</button><//>`}>
     <div className="banner warn"><${Icon} n="alert" s=${16}/><div className="b-body small">Send each code now. For security codes are stored only as a hash and cannot be shown again; you can issue a new code at any time.</div></div>
     ${!link && !HOSTED ? html`<div className="banner neutral"><div className="b-body small">Add this page's link in <strong>Settings & backup</strong> so it is filled into invitations automatically.</div></div>` : null}
-    ${results.map(r => html`<div key=${r.id} className="sub-card"><div className="between"><div><strong className="mono">${r.email}</strong><div className="small t3">${roleName(r.type, r.role)} · ${accountName(r.type, r.accountId)}</div></div><span className="codebox">${r.code}</span></div>
+    ${results.map(r => html`<div key=${r.id} className="sub-card"><div className="between"><div><strong className="mono">${r.email}</strong><div className="small t3">${roleName(r.type, r)} · ${accountName(r.type, r.accountId)}</div></div><span className="codebox">${r.code}</span></div>
       <pre className="inv">${invitationText(r, r.code)}</pre>
       <div className="row">${canEmail ? (sent[r.id] ? html`<${Badge} cls="ok">Emailed${EMAIL_VIA}<//>` : html`<button className="btn btn-sm btn-primary" disabled=${!!busy} onClick=${() => send(r)}>${busy === r.id ? html`<${Spin}/>` : html`<${Icon} n="mail" s=${13}/>`}${via}</button>`) : null}<button className="btn btn-sm" onClick=${() => copyText(invitationText(r, r.code))}><${Icon} n="copy" s=${13}/>Copy invitation</button><button className="btn btn-sm btn-ghost" onClick=${() => copyText(r.code)}>Copy code</button></div></div>`)}
     ${HOSTED ? html`<div className="stack s6 small"><strong>Next steps</strong><span>1. ${canEmail ? 'Send each invitation by email with one click, or copy it into your own email.' : 'Copy each invitation into your own email. (Automatic sending starts once the email service is set up.)'}</span><span>2. They open the link, create an account with the code and land in the workspace; their status here switches to Active.</span></div>`
@@ -512,7 +531,7 @@ function SettingsPage() {
       ${role.isAdmin ? html`<div><button className="btn btn-primary" disabled=${busy === 'save'} onClick=${save}>Save settings</button></div>` : html`<p className="t3 small">Only admins can change workspace settings.</p>`}
     <//>
     <${Card} title="Backup & restore" sub="A backup contains every record: partnerships, projects, masterfiles, approvals, the file index with checksums, members, invitations and the full activity log.">
-      <div className="between"><div><strong>Download a full backup</strong><div className="small t3">JSON file. Stored files themselves stay in storage and are referenced by checksum.${role.isOwner ? ' Includes finance.' : ''}</div></div><button className="btn" disabled=${!role.isAdmin || !!busy} onClick=${backup}>${busy === 'backup' ? html`<${Spin}/>` : html`<${Icon} n="down" s=${15}/>`}Download backup</button></div>
+      <div className="between"><div><strong>Download a full backup</strong><div className="small t3">JSON file. Stored files themselves stay in storage and are referenced by checksum.${role.canFinance ? ' Includes finance.' : ''}</div></div><button className="btn" disabled=${!role.isAdmin || !!busy} onClick=${backup}>${busy === 'backup' ? html`<${Spin}/>` : html`<${Icon} n="down" s=${15}/>`}Download backup</button></div>
       <div className="between"><div><strong>Restore from a backup</strong><div className="small t3">Brings back records missing from the workspace. Existing records are kept unless you choose to overwrite; activity logs are merged, never replaced.</div></div><button className="btn" disabled=${!role.isOwner} onClick=${() => openModal('restore')}><${Icon} n="restore" s=${15}/>Restore…</button></div>
       ${!role.isOwner ? html`<p className="t3 small">Only the workspace owner can restore a backup.</p>` : null}
     <//>

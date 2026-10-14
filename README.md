@@ -3,7 +3,7 @@
 Ajans (Games Medya) ile markalar (ör. Unilever) arasında influencer kampanyalarını debrief'ten sonuca kadar yöneten platform.
 Partnership → dokümanlar ve Claude özeti → master agreement'lar ve markalar → projeler ve deliverable'lar →
 5 aşama: Masterfile onayı, Content × Influencer eşleşmesi, içerik onayı, yayın (link + otomatik screenshot), performans verisi.
-Ayrıca yalnız sahibin gördüğü finans bölümü, ekip/müşteri üyelikleri, aktivite kaydı, dosya bütünlüğü ve yedekleme.
+Ayrıca yalnız sahip ve ajans adminlerinin gördüğü finans bölümü, ekip/müşteri üyelikleri, aktivite kaydı, dosya bütünlüğü ve yedekleme.
 
 ## Adres ve hesaplar
 
@@ -30,8 +30,13 @@ GitHub secret'ları: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (zorunlu); 
 | Testler | `test/e2e.py` (Artifact), `test/hosted_e2e.py` (sunucu, iki hesap) |
 | Ajanlar ve Ops Center | `agents/` |
 
-Sunucu her okuma/yazmayı role göre kontrol eder: müşteri yalnız kendi partnership'ini görür, finans yalnız sahibe açıktır,
-müşteri yalnız onay/yorum alanlarını yazabilir. Dosyalar SHA-256 ile doğrulanır; tüm işlemler gün gün aktivite kaydına yazılır.
+Sunucu her okuma/yazmayı role göre kontrol eder: müşteri yalnız kendi partnership'ini görür, finans yalnız sahip ve ajans adminlerine açıktır,
+müşteri yalnız onay/yorum alanlarını yazabilir.
+
+Roller: Ajans tarafında Sahip, Admin ve Üye; marka tarafında (her partnership için) Admin ve Üye. Üyelerin erişimi **Edit** ya da **View**'dur
+ve admin bunu Team & access (ajans) veya partnership → Members (marka) listesinden istediği an değiştirir. Ajans üyeleri finansı, ekip yönetimini,
+ayarları ve brief özetindeki bütçe satırını görmez; View üyeler hiçbir şey yazamaz. Marka üyesi Edit ise onay/yorum yapar, View ise yalnız izler.
+Eski davetlerdeki `approver` = Üye·Edit, `viewer` = Üye·View olarak okunur. Dosyalar SHA-256 ile doğrulanır; tüm işlemler gün gün aktivite kaydına yazılır.
 
 ## Yerel geliştirme
 

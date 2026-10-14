@@ -251,7 +251,10 @@ def main():
             check('member.invite_sent' in acts(), 'emailing logged')
             btn('Done').click()
             # set viewer role for deniz
-            row = page.locator('tr:has-text("deniz@unilever.com")'); row.locator('select').select_option('viewer'); toast_wait('Role updated')
+            check(page.locator('select[aria-label="Role for deniz@unilever.com"]').input_value() == 'member' and page.locator('select[aria-label="Access for deniz@unilever.com"]').input_value() == 'edit', 'new customer invitations default to Member with Edit access')
+            page.locator('select[aria-label="Access for deniz@unilever.com"]').select_option('view'); toast_wait('Access set to View')
+            dz = [v for v in docs('invites').values() if v['email'] == 'deniz@unilever.com'][0]
+            check(dz['role'] == 'member' and dz['access'] == 'view', 'access switched to View is stored on the invitation')
             # agency invite
             nav('#team'); page.wait_for_selector('text=Agency team')
             btn('Invite members').click(); page.fill('#inv-emails', 'ayse@gamesmedya.com'); btn(re.compile('Create 1 invitation')).click(); page.wait_for_selector('.codebox')
