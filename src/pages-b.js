@@ -81,17 +81,9 @@ function MasterfileTab({ pr, p, infs, m }) {
   const [open, setOpen] = useState({});
   const [commenting, setCommenting] = useState(null);
   const [showRemoved, setShowRemoved] = useState(false);
-  const [refreshing, setRefreshing] = useState('');
+  const fetchJob = s.jobs['fetch:' + pr.id];
   const canAct = role.canApprove(p.id);
-  const refreshAll = async () => {
-    setRefreshing('Starting…');
-    const r = await act(() => refreshCreatorStats(infs, (n, t) => setRefreshing(n + ' / ' + t)));
-    setRefreshing('');
-    if (r && r !== true) {
-      logEvent('masterfile.refresh_stats', { pid: p.id, prid: pr.id, refName: pr.name, scope: 'agency', text: 'Refreshed followers and ER for ' + plural(r.updated, 'profile') + (r.failed.length ? ' (' + r.failed.length + ' failed)' : ''), meta: { updated: r.updated, failed: r.failed.length, keptManual: r.keptManual } });
-      toast(r.failed.length ? 'Updated ' + r.updated + ', failed ' + r.failed.length + ': ' + r.failed.slice(0, 2).join('; ') : 'Stats updated for ' + plural(r.updated, 'profile') + (r.keptManual ? '. Manual values kept.' : ''), r.failed.length ? 'warn' : 'ok');
-    }
-  };
+  const refreshAll = () => fetchAllStats(pr, infs);
   if (!mf.created) {
     return role.canAgency ? html`<${Empty} title="Stage 1 · Masterfile alignment" action=${html`<button className="btn btn-primary" onClick=${() => act(async () => { await dbx.update('projects', pr.id, { masterfile: { created: true, status: 'draft', round: 0, createdAt: nowIso() } }); logEvent('masterfile.create', { pid: p.id, prid: pr.id, refName: pr.name, text: 'Created the masterfile' }); })}>Create Masterfile</button>`}>Create the masterfile, add creators with their platforms, followers and engagement rate, then submit it for the customer's review.<//>`
       : html`<${Empty} title="The agency is preparing the masterfile">You'll be able to review each creator once it is submitted.<//>`;
@@ -130,7 +122,8 @@ function MasterfileTab({ pr, p, infs, m }) {
       <div className="stack s6"><div className="row">${statusBadge}<span className="t3 small">${plural(infs.length, 'creator')} · ${approvedCount} approved${drafts && !role.asCustomer ? ' · ' + drafts + ' not sent' : ''}</span></div>
         <div className="row" style=${{ gap: '6px' }}>${m.creators.map(c => html`<${Badge} key=${c.tier} cls=${c.listed >= c.count ? 'ok' : 'outline'} nodot=${true}>${TIERS[c.tier].short} ${c.listed}/${c.count}<//>`)}</div></div>
       <div className="row">
-        ${role.canAgency && socialOn() && infs.length ? html`<button className="btn" id="mf-refresh" disabled=${!!refreshing} onClick=${refreshAll} title="Fetch the latest followers and engagement rate for every creator. Values you entered by hand are kept.">${refreshing ? html`<${Spin}/> ${refreshing}` : html`<${Icon} n="refresh" s=${15}/>Refresh stats`}</button>` : null}
+        ${role.canAgency && socialOn() && infs.length ? html`<button className="btn" id="mf-refresh" disabled=${!!fetchJob} onClick=${refreshAll} title="Fetch followers and engagement rate for every creator in this masterfile, one after another. Values you entered by hand are kept.">${fetchJob ? html`<${Spin}/> ${fetchJob.step}` : html`<${Icon} n="refresh" s=${15}/>Fetch all`}</button>` : null}
+        ${role.canAgency && !approved ? html`<button className="btn" id="mf-import" onClick=${() => openModal('importInfluencers', { pr, p })}><${Icon} n="upload" s=${15}/>Import list</button>` : null}
         ${role.canAgency && !approved ? html`<button className="btn" onClick=${() => openModal('influencer', { pr })}><${Icon} n="plus" s=${15}/>Add influencer</button>` : null}
         ${role.canAgency && !approved ? html`<button className="btn btn-primary" disabled=${!ready} onClick=${submit}>${inReview ? 'Resubmit for review' : 'Submit for review'}${ready ? ' (' + ready + ')' : ''}</button>` : null}
         ${role.canAgency && approved ? html`<button className="btn" onClick=${() => openModal('confirm', { title: 'Reopen the masterfile?', body: 'Use this to add or replace creators. New creators go to the customer, who gives final approval again.', confirmLabel: 'Reopen', onConfirm: async () => { await dbx.update('projects', pr.id, { masterfile: { status: 'in_review', reopenedAt: nowIso() } }); logEvent('masterfile.reopen', Object.assign({ refName: pr.name, text: 'Reopened the masterfile for changes' }, ctx)); } })}>Reopen for changes</button>` : null}
@@ -154,7 +147,7 @@ function MasterfileTab({ pr, p, infs, m }) {
           ${isOpen ? html`<tr className="sub-row"><td></td><td colSpan="6"><div className="stack s8"><${Comments} comments=${i.comments} canResolve=${role.canAgency} onResolve=${cid => resolve(i, cid)}/>
             ${commenting === i.id ? html`<${CommentBox} placeholder=${role.asCustomer ? 'What should change about this creator?' : 'Reply to the customer'} label=${role.asCustomer ? 'Request change' : 'Send reply'} onSubmit=${t => commentRow(i, t)} onCancel=${() => setCommenting(null)}/>` : null}</div></td></tr>` : null}
         <//>`; })}
-    </tbody></table></div>` : html`<${Empty}>${role.canAgency ? 'No influencers yet. Press Add influencer to start the masterfile.' : 'No creators submitted yet.'}<//>`}
+    </tbody></table></div>` : html`<${Empty}>${role.canAgency ? 'No influencers yet. Add them one by one, or import a list from Excel or CSV with Import list (a template is in the import window).' : 'No creators submitted yet.'}<//>`}
     ${role.canAgency && removed.length ? html`<div><button className="btn btn-sm btn-ghost" onClick=${() => setShowRemoved(v => !v)}>${showRemoved ? 'Hide' : 'Show'} removed creators (${removed.length})</button>
       ${showRemoved ? html`<div className="tbl-wrap" style=${{ marginTop: '8px' }}><table className="tbl"><tbody>${removed.map(i => html`<tr key=${i.id}><td><strong>${i.name}</strong></td><td className="small t3">Removed ${fmtWhen(i.removedAt)}</td><td className="r"><button className="btn btn-sm" onClick=${() => act(async () => { await dbx.update('influencers', i.id, { removed: false, state: 'draft', restoredAt: nowIso() }); logEvent('influencer.restore', Object.assign({ ref: i.id, refName: i.name, text: 'Restored creator ' + i.name + ' as draft' }, ctx)); }, 'Creator restored as draft')}><${Icon} n="restore" s=${13}/>Restore</button></td></tr>`)}</tbody></table></div>` : null}</div>` : null}
   </div>`;
@@ -172,7 +165,7 @@ async function refreshCreatorStats(infs, onProgress) {
   const jobs = []; infs.forEach(i => enabledPlats(i).forEach(k => { if ((i.platforms[k] || {}).handle) jobs.push({ i, k }); }));
   const byInf = {};
   for (let n = 0; n < jobs.length; n++) {
-    const { i, k } = jobs[n]; onProgress && onProgress(n + 1, jobs.length);
+    const { i, k } = jobs[n]; onProgress && onProgress(n + 1, jobs.length, i, k);
     const cur = i.platforms[k];
     try {
       const r = await CAP.hosted.social.profile(k, cur.handle);
@@ -183,8 +176,137 @@ async function refreshCreatorStats(infs, onProgress) {
       (byInf[i.id] = byInf[i.id] || { i, upd: {} }).upd[k] = x; res.updated++;
     } catch (e) { res.failed.push(i.name + ' (' + PLATFORMS[k].label + '): ' + errText(e)); }
   }
-  for (const { i, upd } of Object.values(byInf)) await dbx.update('influencers', i.id, { platforms: upd, statsAt: nowIso() });
+  for (const { i, upd } of Object.values(byInf)) {
+    const data = { platforms: upd, statsAt: nowIso() };
+    if (i.tierAuto) { const maxF = Math.max(0, ...Object.keys(PLATFORMS).map(k => { const u = upd[k] || {}; const c = i.platforms[k] || {}; return c.enabled ? (+(isNum(u.followers) ? u.followers : c.followers) || 0) : 0; })); if (maxF) { data.tier = maxF < 10000 ? 'nano' : 'micro'; data.tierAuto = false; } }
+    await dbx.update('influencers', i.id, data);
+  }
   return res;
+}
+async function fetchAllStats(pr, infs) {
+  const key = 'fetch:' + pr.id;
+  if (store.jobs[key]) return;
+  if (!socialOn()) { toast('Automatic lookup is not set up on the server.', 'warn'); return; }
+  setJob(key, { step: 'Starting…' });
+  try {
+    const r = await refreshCreatorStats(infs, (n, t, i, k) => setJob(key, { step: 'Fetching ' + n + '/' + t + ' · @' + ((i.platforms[k] || {}).handle || i.name) }));
+    logEvent('masterfile.refresh_stats', { pid: pr.partnershipId, prid: pr.id, refName: pr.name, scope: 'agency', text: 'Fetched followers and ER for ' + plural(r.updated, 'profile') + (r.failed.length ? ' (' + r.failed.length + ' failed)' : ''), meta: { updated: r.updated, failed: r.failed.length, keptManual: r.keptManual } });
+    toast(r.failed.length ? 'Updated ' + r.updated + ', failed ' + r.failed.length + ': ' + r.failed.slice(0, 2).join('; ') : 'Stats updated for ' + plural(r.updated, 'profile') + (r.keptManual ? '. Manual values kept.' : ''), r.failed.length ? 'warn' : 'ok');
+  } catch (e) { toast(errText(e), 'crit'); }
+  finally { setJob(key, null); }
+}
+
+/* ---------- masterfile import (Excel / CSV) ---------- */
+const normHead = h => String(h || '').replace(/ı/g, 'i').replace(/İ/g, 'i').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+function classifyHead(h) {
+  const n = normHead(h);
+  if (!n) return null;
+  const ig = /\binstagram\b|\big\b|\binsta\b/.test(n), tt = /tik ?tok|\btt\b/.test(n);
+  const fol = /follower|takipci|takip/.test(n), er = /\ber\b|engagement|etkilesim|er ?%|% ?er/.test(n);
+  if (ig && fol) return 'igF'; if (ig && er) return 'igE'; if (ig) return 'ig';
+  if (tt && fol) return 'ttF'; if (tt && er) return 'ttE'; if (tt) return 'tt';
+  if (/^(name|full name|influencer|influencer name|creator|creator name|isim|ad|ad soyad|adi soyadi|isim soyisim)$/.test(n)) return 'name';
+  if (/\b(type|tier|tur|tip|kategori|segment)\b|creator type/.test(n)) return 'tier';
+  return null;
+}
+function parseTier(v) { const t = normHead(v); return /nano/.test(t) ? 'nano' : /micro|mikro/.test(t) ? 'micro' : ''; }
+function parseImportRows(table, existing) {
+  const head = (table[0] || []).map(classifyHead);
+  const seen = new Set();
+  const known = new Set(); existing.forEach(i => enabledPlats(i).forEach(k => known.add(k + ':' + String(i.platforms[k].handle || '').toLowerCase())));
+  const out = [];
+  for (let r = 1; r < table.length; r++) {
+    const cells = table[r] || []; const v = {};
+    head.forEach((h, c) => { if (h && v[h] === undefined && String(cells[c] === undefined ? '' : cells[c]).trim() !== '') v[h] = String(cells[c]).trim(); });
+    if (!Object.keys(v).length) continue;
+    const plats = {}; const notes = [];
+    for (const [k, hk, fk, ek] of [['instagram', 'ig', 'igF', 'igE'], ['tiktok', 'tt', 'ttF', 'ttE']]) {
+      const handle = v[hk] ? cleanHandle(v[hk], k).replace(/[^A-Za-z0-9._]/g, '') : '';
+      if (!handle) continue;
+      const f = v[fk] ? parseNum(v[fk]) : null, e = v[ek] ? parseNum(v[ek]) : null;
+      if (v[fk] && f === null) notes.push(PLATFORMS[k].short + ' followers not a number');
+      if (v[ek] && e === null) notes.push(PLATFORMS[k].short + ' ER not a number');
+      plats[k] = { handle, followers: f, er: e };
+    }
+    const name = (v.name || '').trim() || (plats.instagram || plats.tiktok || {}).handle || '';
+    const keys = Object.keys(plats).map(k => k + ':' + plats[k].handle.toLowerCase());
+    let status = 'ok', why = '';
+    if (!keys.length) { status = 'skip'; why = 'No Instagram or TikTok username'; }
+    else if (keys.some(k => known.has(k))) { status = 'skip'; why = 'Already in this masterfile'; }
+    else if (keys.some(k => seen.has(k))) { status = 'skip'; why = 'Listed twice in the file'; }
+    keys.forEach(k => seen.add(k));
+    const maxF = Math.max(0, ...Object.values(plats).map(x => x.followers || 0));
+    const tier = parseTier(v.tier) || (maxF ? (maxF < 10000 ? 'nano' : 'micro') : '');
+    out.push({ row: r + 1, name, plats, tier, tierGiven: !!parseTier(v.tier), status, why, notes });
+  }
+  return { rows: out, mapped: head.filter(Boolean) };
+}
+async function downloadMasterfileTemplate() {
+  await lib('xlsx');
+  const X = window.XLSX;
+  const ws = X.utils.aoa_to_sheet([
+    ['Name', 'Instagram', 'Instagram followers', 'Instagram ER %', 'TikTok', 'TikTok followers', 'TikTok ER %', 'Type (nano/micro)'],
+    ['Elif Yılmaz', '@elif.yilmaz', 8400, 5.1, '@elif.tt', '', '', 'nano'],
+    ['Mert Kaya', 'https://www.instagram.com/mertkaya/', '', '', '', '', '', ''],
+  ]);
+  ws['!cols'] = [{ wch: 22 }, { wch: 34 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 18 }];
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Masterfile');
+  const out = X.write(wb, { bookType: 'xlsx', type: 'array' });
+  await CAP.downloads.save({ filename: 'Masterfile_template.xlsx', data: new Blob([out], { type: EXT_MIME.xlsx }) });
+}
+function ImportInfluencersModal({ pr, p }) {
+  const { s, closeModal } = useCtx();
+  const [file, setFile] = useState(null); const [parsed, setParsed] = useState(null); const [busy, setBusy] = useState(''); const [fetchAfter, setFetchAfter] = useState(true);
+  const existing = infsOf(s, pr.id);
+  const fallbackTier = ((pr.creators || [])[0] || {}).tier || 'nano';
+  const pick = async fs => {
+    const f = fs[0]; if (!f) return;
+    if (!/\.(xlsx|csv)$/i.test(f.name)) return toast('Use an Excel (.xlsx) or CSV file.', 'warn');
+    setBusy('Reading ' + f.name + '…');
+    try {
+      await lib('xlsx');
+      const wb = window.XLSX.read(new Uint8Array(await f.arrayBuffer()), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const table = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', blankrows: false });
+      const res = parseImportRows(table, existing);
+      if (!res.mapped.includes('ig') && !res.mapped.includes('tt')) { toast('No Instagram or TikTok column found. Use the template headers.', 'crit'); setParsed(null); setFile(null); }
+      else { setParsed(res); setFile(f); }
+    } catch (e) { toast('The file could not be read: ' + errText(e), 'crit'); }
+    finally { setBusy(''); }
+  };
+  const ok = parsed ? parsed.rows.filter(r => r.status === 'ok') : [];
+  const run = async () => {
+    if (!ok.length) return;
+    setBusy('Importing…');
+    const created = []; const base = Date.now();
+    try {
+      try { await ingestFile(file, { partnershipId: pr.partnershipId, projectId: pr.id, folder: FOLDERS.imports, kind: 'masterfile', dedupe: false }); } catch (e) { toast('The list was imported, but the file itself could not be stored: ' + errText(e), 'warn'); }
+      for (let n = 0; n < ok.length; n++) {
+        const r = ok[n]; setBusy('Adding ' + (n + 1) + '/' + ok.length + ' · ' + r.name);
+        const platforms = {}; Object.keys(PLATFORMS).forEach(k => { const x = r.plats[k]; platforms[k] = x ? { enabled: true, handle: x.handle, followers: x.followers, er: x.er, fSource: x.followers === null ? null : 'manual', erSource: x.er === null ? null : 'manual', fetched: null } : { enabled: false, handle: '', followers: null, er: null, fSource: null, erSource: null, fetched: null }; });
+        const id = rid();
+        const doc = { projectId: pr.id, partnershipId: pr.partnershipId, name: r.name, platforms, tier: r.tier || fallbackTier, tierAuto: !r.tierGiven, state: 'draft', comments: {}, assignments: {}, order: base + n, createdAt: nowIso(), createdBy: store.me.id || null, importedFrom: file.name };
+        await dbx.set('influencers', id, doc); created.push(Object.assign({ id }, doc));
+      }
+      logEvent('influencer.import', { pid: pr.partnershipId, prid: pr.id, refName: file.name, text: 'Imported ' + plural(created.length, 'creator') + ' into the masterfile from ' + file.name + (parsed.rows.length > ok.length ? ' (' + (parsed.rows.length - ok.length) + ' rows skipped)' : ''), meta: { imported: created.length, skipped: parsed.rows.length - ok.length } });
+      toast(plural(created.length, 'creator') + ' added to the masterfile');
+      closeModal();
+      if (fetchAfter && socialOn() && created.length) fetchAllStats(pr, created);
+    } catch (e) { toast(errText(e), 'crit'); setBusy(''); }
+  };
+  const platCell = x => x ? html`<div className="cs"><span className="handle">@${x.handle}</span><span className="stat">${x.followers !== null ? fmtK(x.followers) + ' followers' : 'followers: fetch'}${x.er !== null ? ' · ER ' + fmtPct(x.er) : ''}</span></div>` : html`<span className="t3">—</span>`;
+  return html`<${Modal} title="Import influencers" wide=${true} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" id="imp-run" disabled=${!!busy || !ok.length} onClick=${run}>${busy ? html`<${Spin}/> ${busy}` : 'Import ' + plural(ok.length, 'creator')}</button><//>`}>
+    <p className="t2">Upload an Excel or CSV list with one creator per row. Columns: Name, Instagram, TikTok (username or profile link) and, if you have them, followers, ER % and type (nano/micro). Leave numbers empty to fetch them.</p>
+    <div className="row"><${FileButton} label=${file ? 'Choose another file' : 'Choose Excel or CSV'} cls="btn-primary btn-sm" accept=".xlsx,.csv" onFiles=${pick}/>${CAP.downloads ? html`<button className="btn btn-sm" onClick=${() => act(downloadMasterfileTemplate)}><${Icon} n="down" s=${13}/>Download template</button>` : null}${file ? html`<span className="tag"><span className="mono">${file.name}</span></span>` : null}</div>
+    ${parsed ? html`<${Fragment}>
+      <div className="row small"><${Badge} cls="ok">${ok.length} to import<//>${parsed.rows.length - ok.length ? html`<${Badge} cls="warn">${parsed.rows.length - ok.length} skipped<//>` : null}<span className="t3">${existing.length ? existing.length + ' creators already in this masterfile' : ''}</span></div>
+      <div className="tbl-wrap" style=${{ maxHeight: '320px', overflowY: 'auto' }}><table className="tbl" id="imp-table"><thead><tr><th>Row</th><th>Influencer</th><th>Instagram</th><th>TikTok</th><th>Type</th><th>Status</th></tr></thead><tbody>
+        ${parsed.rows.map(r => html`<tr key=${r.row}><td className="idx">${r.row}</td><td><strong>${r.name || '—'}</strong></td><td>${platCell(r.plats.instagram)}</td><td>${platCell(r.plats.tiktok)}</td><td>${r.tier ? html`<span className="tag">${TIERS[r.tier].short}</span>` : html`<span className="t3 xs">after fetch</span>`}</td><td>${r.status === 'ok' ? html`<${Badge} cls="ok">Ready<//>` : html`<${Badge} cls="warn">${r.why}<//>`}${r.notes.length ? html`<div className="t3 xs">${r.notes.join('; ')}</div>` : null}</td></tr>`)}
+      </tbody></table></div>
+      ${socialOn() ? html`<label className="row nw" style=${{ gap: '8px', cursor: 'pointer' }}><input type="checkbox" id="imp-fetch" checked=${fetchAfter} onChange=${e => setFetchAfter(e.target.checked)}/><span className="small">Fetch followers and ER for the imported creators right after the import (one by one; numbers in the file are kept)</span></label>` : null}
+      <p className="t3 xs">Imported creators are added as drafts. Check them, then Submit for review. The file itself is kept in ${pr.name} / ${FOLDERS.imports}.</p>
+    <//>` : busy ? html`<p className="row nw t3 small"><${Spin}/>${busy}</p>` : null}
+  <//>`;
 }
 const socialOn = () => !!(CAP.hosted && store.features && store.features.apify);
 const shotsOn = () => !!(CAP.hosted && store.features && store.features.screenshots);
@@ -894,7 +1016,7 @@ function PasswordModal() {
     <label className="field"><span>Repeat new password</span><input className="input" type="password" id="pw-again" autoComplete="new-password" value=${again} onChange=${e => setAgain(e.target.value)} onKeyDown=${e => { if (e.key === 'Enter') go(); }}/></label>
   <//>`;
 }
-const MODALS = { password: PasswordModal, deletePartnership: DeletePartnershipModal, confirm: ConfirmModal, image: ImageModal, newPartnership: NewPartnershipModal, rename: RenameModal, project: ProjectModal, influencer: InfluencerModal, preview: PreviewModal, publish: PublishModal, perf: PerfModal, finRow: FinRowModal, finSchedule: FinScheduleModal, invite: InviteModal, inviteResult: InviteResultModal, restore: RestoreModal };
+const MODALS = { importInfluencers: ImportInfluencersModal, password: PasswordModal, deletePartnership: DeletePartnershipModal, confirm: ConfirmModal, image: ImageModal, newPartnership: NewPartnershipModal, rename: RenameModal, project: ProjectModal, influencer: InfluencerModal, preview: PreviewModal, publish: PublishModal, perf: PerfModal, finRow: FinRowModal, finSchedule: FinScheduleModal, invite: InviteModal, inviteResult: InviteResultModal, restore: RestoreModal };
 function ModalHost({ modal }) { if (!modal) return null; const M = MODALS[modal.type]; return M ? html`<${M} ...${modal.props}/>` : null; }
 
 /* ===================== start ===================== */

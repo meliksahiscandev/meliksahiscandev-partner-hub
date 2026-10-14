@@ -13,8 +13,8 @@ const TIERS = {
   nano: { label: 'Nanoinfluencer', short: 'Nano', range: '1K–10K followers' },
   micro: { label: 'Microinfluencer', short: 'Micro', range: '10K–100K followers' },
 };
-const DOC_KIND = { debrief: 'Debrief', presentation: 'Supporting material', other: 'Supporting material', protocol: 'Project protocol', msa: 'Master agreement', screenshot: 'Screenshot', performance: 'Performance report', recovered: 'Recovered file' };
-const FOLDERS = { docs: 'Partnership Documents', protocol: 'Project Protocol', msa: 'Master Agreements', shots: 'Content Screenshots', perf: 'Performance Data', recovered: 'Recovered files' };
+const DOC_KIND = { debrief: 'Debrief', presentation: 'Supporting material', other: 'Supporting material', protocol: 'Project protocol', masterfile: 'Masterfile import', msa: 'Master agreement', screenshot: 'Screenshot', performance: 'Performance report', recovered: 'Recovered file' };
+const FOLDERS = { docs: 'Partnership Documents', protocol: 'Project Protocol', imports: 'Masterfile Imports', msa: 'Master Agreements', shots: 'Content Screenshots', perf: 'Performance Data', recovered: 'Recovered files' };
 const STAGES = [
   { key: 'masterfile', label: 'Masterfile alignment' },
   { key: 'match', label: 'Content × Influencer match' },
