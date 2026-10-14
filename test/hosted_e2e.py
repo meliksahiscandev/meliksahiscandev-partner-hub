@@ -367,8 +367,12 @@ def main():
             shot(A, 'h15_import')
             h = api(A, '/api/health')['body']
             check(h['ok'] and h['errors24h'] == 0 and h['storage']['files'] >= 6, 'health endpoint: no server errors, %s files stored' % h['storage']['files'])
-            A.set_viewport_size({'width': 390, 'height': 844}); nav(A, '#j.' + PRID + '.match'); A.wait_for_timeout(500)
-            check(A.evaluate('() => document.documentElement.scrollWidth') <= 392, 'no horizontal scroll at phone width')
+            A.set_viewport_size({'width': 390, 'height': 844})
+            wide = []
+            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#home', '#activity', '#files', '#team', '#finance', '#settings']:
+                nav(A, h); A.wait_for_timeout(400); w_ = A.evaluate('() => document.documentElement.scrollWidth')
+                if w_ > 392: wide.append((h, w_))
+            check(not wide, 'no horizontal scroll at phone width on any page %s' % wide)
             shot(A, 'h13_mobile')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)

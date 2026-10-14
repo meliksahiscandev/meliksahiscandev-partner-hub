@@ -57,7 +57,7 @@ function Overview() {
 function PartnershipTable({ parts }) {
   const { s, go, role, openModal } = useCtx();
   const canDel = role.isAdmin;
-  return html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Partnership</th><th>Master agreement</th><th>Brands</th><th className="r">Projects</th><th>Progress</th><th className="r">Overall</th>${canDel ? html`<th className="r"><span className="sr">Actions</span></th>` : null}</tr></thead><tbody>
+  return html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Partnership</th><th>Master agreement</th><th>Brands</th><th className="r">Projects</th><th>Progress</th><th className="r">Overall</th>${canDel ? html`<th className="r" aria-label="Actions"></th>` : null}</tr></thead><tbody>
     ${parts.map(p => { const ms = msaState(p); const prs = projectsOf(s, p.id); const metrics = prs.map(pr => projectMetrics(pr, infsOf(s, pr.id))); const avg = metrics.length ? metrics.reduce((t, m) => t + m.overall, 0) / metrics.length : 0; const brands = ms.list.flatMap(m => brandList(m)); return html`<tr key=${p.id} className="click" onClick=${() => go({ view: 'partnership', id: p.id })}>
       <td><div className="cs"><strong>${p.name}</strong>${p.demo ? html`<span className="xs t3">Example data</span>` : null}</div></td>
       <td>${!ms.list.length ? html`<${Badge} cls="crit">Missing<//>` : ms.pending.length ? html`<${Badge} cls="crit">To be delivered<//>` : html`<${Badge} cls="ok">Uploaded<//>`}</td>

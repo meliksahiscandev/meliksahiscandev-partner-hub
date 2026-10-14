@@ -370,3 +370,6 @@ pre.inv{white-space:pre-wrap;font-family:var(--f-mono);font-size:12px;background
 .ps-fact p,.ps-fact ul{margin:0;font-size:12.5px;color:var(--text-2)}
 .ps-fact ul{padding-left:16px}
 button.tag{cursor:pointer}
+.proj-sum .between{flex-wrap:wrap;row-gap:8px}
+.proj-sum .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.tbl-wrap{position:relative}

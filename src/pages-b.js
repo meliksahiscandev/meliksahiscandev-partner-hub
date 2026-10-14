@@ -38,7 +38,7 @@ function ProjectSummary({ pr, p }) {
   const [lang, setLang] = useState((pr.summary && pr.summary.lang) || 'tr');
   if (!role.canAgency && !sum) return null;
   const fact = (label, val) => { const arr = Array.isArray(val) ? val : null; if (arr ? !arr.length : !val) return null; return html`<div className="ps-fact"><span className="eyebrow">${label}</span>${arr ? html`<ul>${arr.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>` : html`<p>${val}</p>`}</div>`; };
-  const actions = role.canAgency ? html`<div className="row nw" style=${{ gap: '6px' }}>
+  const actions = role.canAgency ? html`<div className="row" style=${{ gap: '6px' }}>
     ${sum || files.length ? html`<div className="seg" role="group" aria-label="Summary language"><button aria-pressed=${lang === 'tr'} onClick=${() => setLang('tr')}>TR</button><button aria-pressed=${lang === 'en'} onClick=${() => setLang('en')}>EN</button></div>` : null}
     ${job ? html`<button className="btn btn-sm" onClick=${() => stopJob('psum:' + pr.id)}><${Icon} n="stop" s=${13}/>Stop</button>` : html`<${Fragment}>
       ${files.length ? html`<button className="btn btn-sm" id="ps-regen" disabled=${!s.caps.sample} onClick=${() => startProjectSummary(pr, null, lang)}><${Icon} n="refresh" s=${13}/>${sum ? 'Regenerate' : 'Summarize'}</button>` : null}
