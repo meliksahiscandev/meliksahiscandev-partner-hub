@@ -157,7 +157,9 @@ const subs = new Set();
 let emitQueued = false;
 function emit() { if (emitQueued) return; emitQueued = true; queueMicrotask(() => { emitQueued = false; subs.forEach(f => f()); }); }
 function useStore() { const [, set] = useState(0); useEffect(() => { const f = () => set(x => x + 1); subs.add(f); return () => subs.delete(f); }, []); return store; }
-function toast(msg, kind) { const id = rid(6); store.toasts = store.toasts.concat([{ id, msg, kind: kind || 'ok' }]); emit(); setTimeout(() => { store.toasts = store.toasts.filter(t => t.id !== id); emit(); }, kind === 'crit' ? 7000 : 3600); }
+// At most TOAST_MAX notices at once (oldest goes first); a repeated message replaces its earlier copy.
+const TOAST_MAX = 3;
+function toast(msg, kind) { const id = rid(6); store.toasts = store.toasts.filter(t => t.msg !== msg).concat([{ id, msg, kind: kind || 'ok' }]).slice(-TOAST_MAX); emit(); setTimeout(() => { store.toasts = store.toasts.filter(t => t.id !== id); emit(); }, kind === 'crit' ? 7000 : 3600); }
 function errText(e) {
   const map = {
     quota_exceeded: 'Workspace storage is full. Clear the trash or archive old projects and try again.',
@@ -461,6 +463,13 @@ async function loadOlderAudit() {
   const add = snap.docs.filter(d => !known.has(d.id)).map(d => Object.assign({ id: d.id }, d.data()));
   store.auditOlder = store.auditOlder.concat(add); emit();
   return add.length;
+}
+// Storage details of an event (hash, container, asset, file version) are agency-internal; worker.js strips the same keys for customers.
+const AGENCY_META = ['sha256', 'container', 'assetId', 'verified'];
+function eventMeta(e, agency) {
+  if (!e.meta || agency) return e.meta || null;
+  const m = Object.assign({}, e.meta); AGENCY_META.forEach(k => { delete m[k]; }); if (/^file\./.test(e.act)) delete m.version;
+  return Object.keys(m).length ? m : null;
 }
 function visibleEvents(s, role, filter) {
   filter = filter || {};
