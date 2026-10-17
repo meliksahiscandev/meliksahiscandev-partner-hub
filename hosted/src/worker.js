@@ -52,6 +52,13 @@ const upstreamMsg = (r, label) => { const b = r.body || {}; const e = b.error ||
 const rid = (n = 12) => { const a = 'abcdefghijklmnopqrstuvwxyz0123456789'; const r = crypto.getRandomValues(new Uint8Array(n)); let s = ''; for (const x of r) s += a[x % 36]; return s; };
 const nowIso = () => new Date().toISOString();
 const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+// Storage details of an audit event (hash, container, asset, file version) are agency-internal (same keys as eventMeta in core.js).
+const AGENCY_META = ['sha256', 'container', 'assetId', 'verified'];
+function customerEvent(e) {
+  if (!e.meta || typeof e.meta !== 'object') return e;
+  const m = Object.assign({}, e.meta); for (const k of AGENCY_META) delete m[k]; if (/^file\./.test(e.act || '')) delete m.version;
+  const c = Object.assign({}, e); if (Object.keys(m).length) c.meta = m; else delete c.meta; return c;
+}
 const normEmail = e => String(e || '').trim().toLowerCase();
 const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const onlyKeys = (obj, keys) => obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).every(k => keys.includes(k));
@@ -211,7 +218,7 @@ export class Workspace extends DurableObject {
       return c;
     }
     if (col === 'projects' || col === 'files' || col === 'filetext') return A[data.partnershipId] ? data : undefined;
-    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency') ev[k] = e; return Object.assign({}, data, { events: ev }); }
+    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency') ev[k] = customerEvent(e); return Object.assign({}, data, { events: ev }); }
     return undefined;
   }
   canWrite(acc, user, op, path, data, cur) {
