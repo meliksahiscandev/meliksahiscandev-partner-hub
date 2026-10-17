@@ -261,7 +261,7 @@ function ProjectList({ p }) {
     ${prs.map(pr => { const m = projectMetrics(pr, infsOf(s, pr.id)); const msa = msas.find(x => x.id === pr.msaId); return html`<tr key=${pr.id} className="click" onClick=${() => go({ view: 'project', id: pr.id })}>
       <td><strong>${pr.name}</strong></td><td>${msa ? html`<span className="row nw" style=${{ gap: '6px' }}>${msa.label}${msa.status !== 'uploaded' ? html`<${Badge} cls="crit">pending<//>` : null}</span>` : '—'}</td>
       <td><div className="row" style=${{ gap: '4px' }}>${(pr.brandIds || []).map(b => bi[b] ? html`<span key=${b} className="tag">${bi[b].name}</span>` : null)}</div></td>
-      <td className="small">${m.overall >= 1 ? 'Complete' : (m.currentIdx + 1) + ' · ' + STAGES[m.currentIdx].label}</td><td style=${{ minWidth: '120px' }}><${MiniTrack} m=${m}/></td><td className="r num mono">${Math.round(m.overall * 100)}%</td></tr>`; })}
+      <td className="small">${stageText(m, true)}</td><td style=${{ minWidth: '120px' }}><${MiniTrack} m=${m}/></td><td className="r num mono">${Math.round(m.overall * 100)}%</td></tr>`; })}
   </tbody></table></div>`;
 }
 

@@ -29,6 +29,12 @@ def check(cond, label):
 def make_fixtures():
     from PIL import Image, ImageDraw
     im = Image.new('RGB', (900, 1400), (245, 240, 230)); d = ImageDraw.Draw(im); d.text((40, 40), 'Moodboard: glow, summer, beach', fill=(20, 20, 20)); im.save(FIX / 'moodboard.png')
+    import openpyxl
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(['Name', 'Instagram', 'Instagram followers', 'Instagram ER %', 'TikTok', 'TikTok followers', 'TikTok ER %', 'Type (nano/micro)'])
+    ws.append(['Deniz Nano', '@deniz.nano', '34,9B', '3,1', None, None, None, 'nano'])
+    ws.append(['Ada K.', 'https://www.instagram.com/ADA.KAYA/', None, None, None, None, None, None])
+    wb.save(FIX / 'creators_tier.xlsx')
 
 def main():
     make_fixtures()
@@ -364,6 +370,33 @@ def main():
             check(any(v['folder'] == 'Masterfile Imports' and v['verified'] for v in st['files'].values()), 'imported file stored and verified in Masterfile Imports')
             A.click('#mf-refresh'); toast(A, 'Stats updated for 4 profiles', 30000)
             check(True, 'Fetch all runs through every creator in the masterfile')
+            A.wait_for_selector('tr:has-text("Bora Tan") .tier-clash')
+            check(A.locator('tr:has-text("Bora Tan") .tier-clash').count() == 1 and A.locator('tr:has-text("Ada Kaya") .tier-clash').count() == 0, 'fetched 23.4K followers on a "nano" row bring up the type warning by themselves')
+            # Same Instagram account typed again as a profile link: refused, row count unchanged.
+            n_rows = A.locator('tr[id^="inf-row-"]').count()
+            btn(A, 'Add influencer').click(); A.fill('#inf-name', 'Ada K.'); A.click('.modal .opt:has-text("Instagram")')
+            A.fill('#inf-h-instagram', 'https://www.instagram.com/Ada.Kaya/'); A.fill('#inf-f-instagram', '12500')
+            btn(A, 'Add to masterfile').click(); A.wait_for_selector('#inf-dup')
+            check('Ada Kaya' in A.locator('#inf-dup').inner_text(), 'adding the same account again says it is already in the masterfile: %s' % A.locator('#inf-dup').inner_text())
+            A.locator('#inf-dup button').click(); A.wait_for_selector('.modal', state='detached')
+            A.wait_for_timeout(500)
+            st = state(A)
+            check(A.locator('tr[id^="inf-row-"]').count() == n_rows and len([v for v in st['influencers'].values() if v.get('projectId') == [k for k, x in st['projects'].items() if x['name'] == 'Import Test'][0] and not v.get('removed')]) == n_rows, 'duplicate not stored, row count unchanged (%d)' % n_rows)
+            # Second list: a 34.9K "nano" row is imported with a warning; an existing account in another letter case is skipped.
+            A.click('#mf-import'); A.wait_for_selector('.modal:has-text("Import influencers")')
+            A.locator('.modal button:has-text("Choose Excel or CSV") + input[type=file]').set_input_files(str(FIX / 'creators_tier.xlsx'))
+            A.wait_for_selector('#imp-table')
+            check(A.locator('#imp-table tr:has-text("Deniz Nano") .tier-clash').count() == 1, 'import preview: 34.9K followers typed "nano" gets the type warning')
+            check(A.locator('#imp-table tr:has-text("Ada K.") .badge:has-text("Already in this masterfile")').count() == 1, 'import skips an account already in the masterfile (case and link form ignored)')
+            if A.locator('#imp-fetch').count(): A.uncheck('#imp-fetch')
+            A.click('#imp-run'); toast(A, '1 creator added to the masterfile', 20000)
+            A.wait_for_selector('tr:has-text("Deniz Nano") .tier-clash')
+            st = state(A)
+            dn = [(k, v) for k, v in st['influencers'].items() if v['name'] == 'Deniz Nano'][0]
+            check(dn[1]['tier'] == 'nano' and dn[1]['platforms']['instagram']['followers'] == 34900, 'the type in the file is kept (agency decision), warning shown on the masterfile row')
+            r = api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/' + dn[0], 'data': {'state': 'pending'}})
+            nav(B, '#j.' + [k for k, x in st['projects'].items() if x['name'] == 'Import Test'][0] + '.masterfile'); B.wait_for_selector('text=Deniz Nano')
+            check(B.locator('.tier-clash').count() == 0 and B.locator('text=Type doesn\'t match').count() == 0, 'the brand does not see the type warning')
             shot(A, 'h15_import')
             print('16. Admin and member access (agency and brand)', flush=True)
             IPR = [k for k, v in st['projects'].items() if v['name'] == 'Import Test'][0]

@@ -383,14 +383,31 @@ function projectMetrics(pr, infs) {
   ].map((x, i) => Object.assign({}, STAGES[i], x, { pct: Math.max(0, Math.min(1, x.pct || 0)) }));
   const overall = stages.reduce((t, x) => t + x.pct, 0) / stages.length;
   const firstOpen = stages.findIndex(x => x.pct < 1);
+  let furthestIdx = -1; stages.forEach((x, i) => { if (x.pct > 0) furthestIdx = i; });
+  const asgCapped = totalQty > 0 ? capSum('assigned') : asgTotal;
   return {
     targets: targets.concat(Object.values(extra)), totalQty, creators, creatorTotal, stages, overall,
-    currentIdx: firstOpen === -1 ? 4 : firstOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
+    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, asgCapped, asgOver: asgTotal - asgCapped, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
     delivered: totalQty > 0 ? capSum('live') : asgLive, remaining: totalQty > 0 ? Math.max(0, totalQty - capSum('live')) : Math.max(0, asgTotal - asgLive),
     pendingRows: mf.status === 'in_review' ? infs.filter(i => i.state === 'pending').length : 0,
     changeRows: infs.filter(i => openChanges(i.comments).length > 0).length,
   };
 }
+
+// One line for "where is this project": the first open stage, plus the furthest stage already under way when work has moved ahead of it.
+function stageText(m, short) {
+  if (m.overall >= 1) return short ? 'Complete' : 'All five stages complete';
+  const cur = m.stages[m.currentIdx];
+  if (m.furthestIdx > m.currentIdx) {
+    const far = m.stages[m.furthestIdx];
+    return short ? (m.furthestIdx + 1) + ' · ' + far.label + ' under way · ' + cur.label + ' open' : 'Stage ' + (m.furthestIdx + 1) + ' of 5 · ' + far.label + ' under way · still open: ' + cur.label + ' (' + cur.detail + ')';
+  }
+  return short ? (m.currentIdx + 1) + ' · ' + cur.label : 'Stage ' + (m.currentIdx + 1) + ' of 5 · ' + cur.label;
+}
+const maxFollowers = plats => Math.max(0, ...Object.values(plats || {}).filter(x => x && x.enabled !== false).map(x => +x.followers || 0));
+// A tier contradicts the follower count when it falls in the other tier's range (nano 1K–10K, micro 10K–100K).
+const tierClash = (tier, followers) => !!followers && ((tier === 'nano' && followers >= 10000) || (tier === 'micro' && followers < 10000));
+const handleKeys = plats => Object.keys(PLATFORMS).filter(k => plats && plats[k] && plats[k].enabled !== false && plats[k].handle).map(k => k + ':' + cleanHandle(plats[k].handle, k).toLowerCase());
 
 /* ---------- audit log (append-only, day-sharded, with local outbox) ---------- */
 const outbox = lsGet('gm-audit-outbox', []).filter(e => e && e.id && e.at);
