@@ -116,7 +116,7 @@ function DashboardsPage({ id }) {
   const delivered = d.perProject.reduce((a, x) => a + x.metrics.delivered, 0), target = d.perProject.reduce((a, x) => a + x.metrics.totalQty, 0);
   return html`<${Fragment}>
     <${PageHead} eyebrow="Analytics" title="Dashboards" meta=${html`<span className="t3 small">${sc.kind === 'all' ? 'Consolidated across ' + plural(sc.prs.length, 'project') + ' in ' + plural(new Set(sc.prs.map(x => x.partnershipId)).size, 'partnership') : sc.label}</span>`}
-      actions=${html`<select className="input" id="dash-scope" style=${{ width: 'auto', minWidth: '220px' }} value=${value} onChange=${e => setScope(e.target.value)} aria-label="Dashboard scope">
+      actions=${html`<select className="input" id="dash-scope" title=${sc.label} value=${value} onChange=${e => setScope(e.target.value)} aria-label="Dashboard scope">
         <option value="all">All projects (consolidated)</option>
         ${sc.parts.map(p => { const ps = sc.all.filter(x => x.partnershipId === p.id); return ps.length ? html`<optgroup key=${p.id} label=${p.name}><option value=${'p-' + p.id}>${p.name} · all projects</option>${ps.map(pr => html`<option key=${pr.id} value=${'j-' + pr.id}>${pr.name}</option>`)}</optgroup>` : null; })}
       </select>${CAP.downloads ? html`<button className="btn" onClick=${exportCsv}><${Icon} n="down" s=${15}/>Export CSV</button>` : null}${sc.kind === 'project' ? html`<button className="btn" onClick=${() => go({ view: 'project', id: sc.prs[0].id, tab: 'performance' })}>Open project</button>` : null}`}/>

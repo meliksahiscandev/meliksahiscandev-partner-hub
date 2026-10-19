@@ -443,12 +443,26 @@ def main():
             check('finance' not in state(E), 'brand members never receive finance')
             h = api(A, '/api/health')['body']
             check(h['ok'] and h['errors24h'] == 0 and h['storage']['files'] >= 6, 'health endpoint: no server errors, %s files stored' % h['storage']['files'])
-            A.set_viewport_size({'width': 390, 'height': 844})
+            LONG = 'Yaz Işıltısı — Güneş Koruyucu Şampuan Lansmanı ve Çok Uzun Türkçe Kampanya Adı'
+            check(api(A, '/api/db/op', {'op': 'update', 'path': 'projects/' + PRID, 'data': {'name': LONG}})['status'] == 200, 'project renamed to a %d-character Turkish name for the phone check' % len(LONG))
+            A.set_viewport_size({'width': 390, 'height': 844}); B.set_viewport_size({'width': 390, 'height': 844})
             wide = []
-            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#d.i-' + EID, '#home', '#activity', '#files', '#team', '#finance', '#settings']:
+            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#d.p-' + PID, '#d.j-' + PRID, '#d.i-' + EID, '#home', '#activity', '#files', '#team', '#finance', '#settings']:
                 nav(A, h); A.wait_for_timeout(400); w_ = A.evaluate('() => document.documentElement.scrollWidth')
                 if w_ > 392: wide.append((h, w_))
             check(not wide, 'no horizontal scroll at phone width on any page %s' % wide)
+            nav(A, '#d.j-' + PRID); A.wait_for_selector('#dash-scope')
+            r_ = A.evaluate('() => { const e = document.querySelector("#dash-scope"), b = e.getBoundingClientRect(); return { right: b.right, title: e.title, ov: getComputedStyle(e).textOverflow }; }')
+            check(r_['right'] <= 390 and r_['title'] == LONG and r_['ov'] == 'ellipsis', 'phone: dashboard scope picker fits the screen and shortens the long name (right %d px)' % r_['right'])
+            tags = A.evaluate('() => [...document.querySelectorAll("#dash-creators .dash-proj .tag")].map(t => ({ w: t.getBoundingClientRect().width, sw: t.scrollWidth, cw: t.clientWidth, title: t.title }))')
+            check(tags and all(t['w'] <= 200.5 for t in tags) and any(t['sw'] > t['cw'] and LONG in t['title'] for t in tags), 'phone: Projects tags stay within 200 px and the long name is shortened with its full name on hover')
+            shot(A, 'h13b_dash_mobile_long_name')
+            wideB = []
+            for h in ['#dashboards', '#d.p-' + PID, '#d.j-' + PRID]:
+                nav(B, h); B.wait_for_timeout(400); w_ = B.evaluate('() => document.documentElement.scrollWidth')
+                if w_ > 392: wideB.append((h, w_))
+            check(not wideB, 'brand at phone width: dashboards with a long project name do not scroll sideways %s' % wideB)
+            shot(B, 'h13c_brand_dash_mobile')
             shot(A, 'h13_mobile')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
