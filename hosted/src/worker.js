@@ -204,6 +204,10 @@ export class Workspace extends DurableObject {
     }
     if (acc.type !== 'customer') return undefined;
     const A = acc.accounts;
+    // Agency-internal working files, their text index and their upload events never reach customers.
+    if (col === 'files' && agencyOnlyFile(data)) return undefined;
+    if (col === 'filetext' && agencyOnlyFile((this.getDoc('files/' + (data.fileId || id)) || {}).data)) return undefined;
+    if (col === 'audit') data = Object.assign({}, data, { events: Object.fromEntries(Object.entries(data.events || {}).filter(([, e]) => !(e && agencyOnlyFile(e.meta)))) });
     if (col === 'partnerships') { if (!A[id]) return undefined; const c = clone(data); if (c.summary && c.summary.data) c.summary.data.budget = ''; return c; }
     if (col === 'influencers') {
       if (!A[data.partnershipId]) return undefined;
@@ -212,10 +216,8 @@ export class Workspace extends DurableObject {
       for (const k of Object.keys(c.platforms || {})) { const x = c.platforms[k]; if (x && typeof x === 'object') { delete x.fetched; delete x.fSource; delete x.erSource; } }
       return c;
     }
-    if (col === 'files') return A[data.partnershipId] && !agencyOnlyFile(data) ? data : undefined;
-    if (col === 'filetext') { if (!A[data.partnershipId]) return undefined; const f = this.getDoc('files/' + (data.fileId || id)); return f && !agencyOnlyFile(f.data) ? data : undefined; }
-    if (col === 'projects') return A[data.partnershipId] ? data : undefined;
-    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency' && !agencyOnlyFile(e.meta)) ev[k] = e; return Object.assign({}, data, { events: ev }); }
+    if (col === 'projects' || col === 'files' || col === 'filetext') return A[data.partnershipId] ? data : undefined;
+    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency') ev[k] = e; return Object.assign({}, data, { events: ev }); }
     return undefined;
   }
   canWrite(acc, user, op, path, data, cur) {
