@@ -15,6 +15,8 @@ const PBKDF2_ITER = 100000;
 const SESSION_DAYS = 30;
 const enc = new TextEncoder();
 
+// Agency-internal working files (the raw creator list behind a masterfile import): never served to customers. Mirrors agencyOnlyFile in src/core.js.
+const agencyOnlyFile = f => !!f && (f.folder === 'Masterfile Imports' || f.kind === 'masterfile');
 const LAZY = new Set(['filetext']); // large collections fetched on demand, not pushed in sync
 function csp(host) {
   return ["default-src 'self'", "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -210,8 +212,10 @@ export class Workspace extends DurableObject {
       for (const k of Object.keys(c.platforms || {})) { const x = c.platforms[k]; if (x && typeof x === 'object') { delete x.fetched; delete x.fSource; delete x.erSource; } }
       return c;
     }
-    if (col === 'projects' || col === 'files' || col === 'filetext') return A[data.partnershipId] ? data : undefined;
-    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency') ev[k] = e; return Object.assign({}, data, { events: ev }); }
+    if (col === 'files') return A[data.partnershipId] && !agencyOnlyFile(data) ? data : undefined;
+    if (col === 'filetext') { if (!A[data.partnershipId]) return undefined; const f = this.getDoc('files/' + (data.fileId || id)); return f && !agencyOnlyFile(f.data) ? data : undefined; }
+    if (col === 'projects') return A[data.partnershipId] ? data : undefined;
+    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency' && !agencyOnlyFile(e.meta)) ev[k] = e; return Object.assign({}, data, { events: ev }); }
     return undefined;
   }
   canWrite(acc, user, op, path, data, cur) {
@@ -564,7 +568,7 @@ export class Workspace extends DurableObject {
     const acc = this.access(user);
     if (acc.type !== 'agency') {
       const ref = this.q("SELECT data FROM docs WHERE col='files' AND deleted=0 AND json_extract(data,'$.assetId')=?", id);
-      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId]; })) return fail('not_found', 'No such file.', 404);
+      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId] && !agencyOnlyFile(d); })) return fail('not_found', 'No such file.', 404);
     }
     const chunks = this.q('SELECT data FROM blobs WHERE id=? ORDER BY idx', id);
     const out = new Uint8Array(meta.size); let o = 0;

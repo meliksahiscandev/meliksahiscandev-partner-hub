@@ -194,10 +194,10 @@ function SearchBox() {
     parts.forEach(p => { if (p.name.toLowerCase().includes(t)) out.push({ k: 'Partnership', v: p.name, r: { view: 'partnership', id: p.id } }); msaList(p).forEach(m => brandList(m).forEach(b => { if (b.name.toLowerCase().includes(t)) out.push({ k: 'Brand', v: b.name + ' · ' + p.name, r: { view: 'partnership', id: p.id, tab: 'agreements' } }); })); });
     s.projects.filter(pr => pids.has(pr.partnershipId) && isActive(pr)).forEach(pr => { if (pr.name.toLowerCase().includes(t)) out.push({ k: 'Project', v: pr.name, r: { view: 'project', id: pr.id } }); });
     s.influencers.filter(i => !i.removed && pids.has(i.partnershipId)).forEach(i => { const hs = enabledPlats(i).map(k => i.platforms[k].handle || ''); if (i.name.toLowerCase().includes(t) || hs.some(h => h.toLowerCase().includes(t))) out.push({ k: 'Creator', v: i.name + (hs.length ? ' · @' + hs[0] : ''), r: { view: 'project', id: i.projectId, tab: 'masterfile' } }); });
-    s.files.filter(f => f.status === 'active' && (role.isAgency ? true : pids.has(f.partnershipId))).forEach(f => { if (String(f.name).toLowerCase().includes(t) || String(f.sha256 || '').startsWith(t)) out.push({ k: 'File', v: f.name, r: f.partnershipId ? { view: 'partnership', id: f.partnershipId, tab: 'files' } : { view: 'files' } }); });
+    filesFor(s, role).filter(f => f.status === 'active' && (role.isAgency ? true : pids.has(f.partnershipId))).forEach(f => { if (String(f.name).toLowerCase().includes(t) || String(f.sha256 || '').startsWith(t)) out.push({ k: 'File', v: f.name, r: f.partnershipId ? { view: 'partnership', id: f.partnershipId, tab: 'files' } : { view: 'files' } }); });
     if (role.canAgency) s.invites.forEach(i => { if (i.email.includes(t)) out.push({ k: 'Member', v: i.email + ' · ' + accountName(i.accountType, i.accountId), r: i.accountType === 'agency' ? { view: 'team' } : { view: 'partnership', id: i.accountId, tab: 'members' } }); });
     return out.slice(0, 14);
-  }, [q, s.partnerships, s.projects, s.influencers, s.files, s.invites, role.status, role.isCustomer]);
+  }, [q, s.partnerships, s.projects, s.influencers, s.files, s.invites, role.status, role.isCustomer, role.asCustomer]);
   const pick = r => { setQ(''); setOpen(false); go(r.r); };
   return html`<div className="search" onBlur=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setTimeout(() => setOpen(false), 120); }}>
     <span className="s-ico"><${Icon} n="search" s=${15}/></span>

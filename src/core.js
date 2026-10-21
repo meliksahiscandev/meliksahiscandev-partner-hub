@@ -28,6 +28,8 @@ const TIERS = {
 };
 const DOC_KIND = { debrief: 'Debrief', presentation: 'Supporting material', other: 'Supporting material', protocol: 'Project protocol', masterfile: 'Masterfile import', msa: 'Master agreement', screenshot: 'Screenshot', performance: 'Performance report', recovered: 'Recovered file' };
 const FOLDERS = { docs: 'Partnership Documents', protocol: 'Project Protocol', imports: 'Masterfile Imports', msa: 'Master Agreements', shots: 'Content Screenshots', perf: 'Performance Data', recovered: 'Recovered files' };
+// Working files that stay inside the agency: the raw creator list behind a masterfile import (it can carry fees and notes).
+const agencyOnlyFile = f => f.folder === FOLDERS.imports || f.kind === 'masterfile';
 const STAGES = [
   { key: 'masterfile', label: 'Masterfile alignment' },
   { key: 'match', label: 'Content × Influencer match' },
@@ -320,6 +322,8 @@ function asgList(inf) { return Object.entries(inf.assignments || {}).map(([id, a
 function cmtList(obj) { return Object.entries(obj || {}).map(([id, c]) => Object.assign({ id }, c)).sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))); }
 const openChanges = obj => cmtList(obj).filter(c => c.kind === 'change' && !c.resolved);
 const filesOf = (s, pid) => s.files.filter(f => f.partnershipId === pid && f.status === 'active').sort(byCreated);
+// The files a role may list: customers (and the agency's customer preview) never see agency-only working files.
+const filesFor = (s, role) => role && role.asCustomer ? s.files.filter(f => !agencyOnlyFile(f)) : s.files;
 const enabledPlats = inf => Object.keys(PLATFORMS).filter(k => inf.platforms && inf.platforms[k] && inf.platforms[k].enabled);
 function perfOf(a) {
   const p = (a && a.perf) || {};
@@ -466,6 +470,7 @@ function visibleEvents(s, role, filter) {
   filter = filter || {};
   return allEvents(s).filter(e => {
     if (role.isCustomer && (e.scope === 'agency' || !e.pid || !role.accounts[e.pid])) return false;
+    if (role.asCustomer && e.meta && agencyOnlyFile(e.meta)) return false;
     if (filter.pid && e.pid !== filter.pid) return false;
     if (filter.prid && e.prid !== filter.prid) return false;
     return true;
@@ -550,12 +555,12 @@ async function ingestFile(file, meta, onStep) {
     if (text) await dbx.set('filetext', id, { fileId: id, partnershipId: base.partnershipId, text: text.slice(0, 60000), createdAt: nowIso() });
     const done = { status: 'active', assetId: stored.assetId, container: stored.container, verified: ok, verifiedAt: nowIso(), textChars: text.length, indexedAt: nowIso() };
     await dbx.update('files', id, done);
-    logEvent('file.upload', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, text: 'Uploaded ' + name + ' to ' + folderPath(base) + (base.version > 1 ? ' (version ' + base.version + ')' : ''), meta: { folder: base.folder, size: base.size, sha256: sha, version: base.version, verified: ok, container: stored.container } });
+    logEvent('file.upload', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, scope: agencyOnlyFile(base) ? 'agency' : undefined, text: 'Uploaded ' + name + ' to ' + folderPath(base) + (base.version > 1 ? ' (version ' + base.version + ')' : ''), meta: { folder: base.folder, size: base.size, sha256: sha, version: base.version, verified: ok, container: stored.container } });
     step('Stored');
     return { file: Object.assign({ id }, base, done) };
   } catch (e) {
     try { await dbx.update('files', id, { status: 'failed', error: errText(e), failedAt: nowIso() }); } catch (x) { }
-    logEvent('file.upload_failed', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, text: 'Upload failed: ' + name + ' — ' + errText(e), meta: { sha256: sha } });
+    logEvent('file.upload_failed', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, scope: agencyOnlyFile(base) ? 'agency' : undefined, text: 'Upload failed: ' + name + ' — ' + errText(e), meta: { sha256: sha } });
     throw e;
   }
 }
