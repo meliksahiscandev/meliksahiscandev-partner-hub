@@ -595,6 +595,76 @@ def main():
             check(not wideB, 'brand at phone width: dashboards with a long project name do not scroll sideways %s' % wideB)
             shot(B, 'h13c_brand_dash_mobile')
             shot(A, 'h13_mobile')
+
+            print('17. Scope edits keep assigned work in sight (PH-015, PH-014)', flush=True)
+            A.set_viewport_size({'width': 1360, 'height': 900}); B.set_viewport_size({'width': 1360, 'height': 900})
+            sp = state(A)['projects'][PRID]
+            def scope_project(pid_, name, content, reels):
+                # reels: list of (review, live, perf) per assigned Instagram Reels; the TikTok Post is done with data.
+                at = '2026-10-20T10:00:00.000Z'
+                r1 = api(A, '/api/db/op', {'op': 'set', 'path': 'projects/' + pid_, 'data': {'name': name, 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': content, 'creators': [], 'status': 'active', 'masterfile': {'created': True, 'status': 'approved', 'round': 1, 'approvedAt': at}, 'createdAt': at}})
+                asg = {'t0': {'platform': 'tiktok', 'type': 'post', 'createdAt': at, 'review': {'status': 'approved'}, 'publish': {'status': 'live'}, 'perf': {'views': 900, 'likes': 40}}}
+                for n, (rv, live, perf) in enumerate(reels):
+                    a = {'platform': 'instagram', 'type': 'reels', 'createdAt': '2026-10-2%dT10:00:00.000Z' % n}
+                    if rv: a['review'] = {'status': rv}
+                    if live: a['publish'] = {'status': 'live'}
+                    if perf: a['perf'] = {'views': 1000, 'likes': 50}
+                    asg['r%d' % n] = a
+                r2 = api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/' + pid_ + 'i', 'data': {'name': 'Scope Creator', 'partnershipId': PID, 'projectId': pid_, 'state': 'approved', 'order': 1, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': 'scope.creator', 'followers': 20000, 'er': 4}}, 'assignments': asg, 'createdAt': at}})
+                return r1['status'] == 200 and r2['status'] == 200
+            IG4 = [{'platform': 'instagram', 'type': 'reels', 'qty': 4}, {'platform': 'tiktok', 'type': 'post', 'qty': 1}]
+            check(scope_project('scopea', 'Scope Lock', IG4, [('approved', True, True)] + [(None, False, False)] * 5), 'project with 6 assigned Reels, one already live')
+            nav(A, '#j.scopea'); A.wait_for_selector('h1:has-text("Scope Lock")')
+            btn(A, 'Edit scope').click(); A.wait_for_selector('.modal')
+            A.locator('.modal .sub-card .between:has-text("Instagram") button:has-text("Remove platform")').click()
+            btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.crit')
+            imp = A.locator('#scope-impact').inner_text()
+            check('Instagram Reels' in imp and '6 pieces assigned' in imp and '1 live' in imp and 'cannot be removed' in imp, 'removing Instagram with 6 assigned Reels (1 live) is blocked with the counts: %s' % imp.replace('\n', ' ')[:160])
+            check([c['type'] for c in state(A)['projects']['scopea']['content']] == ['reels', 'post'], 'blocked removal leaves the project scope unchanged on the server')
+            shot(A, 'h17a_scope_blocked')
+            btn(A, 'Cancel').click(); A.wait_for_selector('.modal', state='detached')
+            btn(A, 'Edit scope').click(); A.wait_for_selector('.modal')
+            A.locator('.modal .sub-card input[inputmode="numeric"]').first.fill('2')
+            btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.warn')
+            imp = A.locator('#scope-impact').inner_text()
+            check('target 4 → 2' in imp and '4 will count as outside scope' in imp and btn(A, 'Confirm and save').count() == 1, 'lowering Reels 4 → 2 below 6 assigned warns first: %s' % imp.replace('\n', ' ')[:160])
+            check(state(A)['projects']['scopea']['content'][0]['qty'] == 4, 'nothing saved before the confirmation')
+            btn(A, 'Confirm and save').click(); toast(A, 'Project updated')
+            check(state(A)['projects']['scopea']['content'][0]['qty'] == 2, 'confirmed: Reels target saved as 2')
+            A.wait_for_selector('#outside-line')
+            check('4 pieces outside scope' in A.locator('#outside-line').inner_text(), 'progress card counts the 4 Reels outside scope')
+            # Instagram already gone from the scope while 6 Reels are assigned and posted (data written before this fix): never 100%.
+            check(scope_project('scopeb', 'Scope Gone', [{'platform': 'tiktok', 'type': 'post', 'qty': 1}], [('approved', True, True)] + [('approved', False, False)] * 5), 'project whose scope no longer has Instagram but 6 Reels are assigned')
+            for pg, who in ((A, 'agency'), (B, 'brand')):
+                pg.wait_for_timeout(600); nav(pg, '#j.scopeb'); pg.wait_for_selector('#stage-line')
+                big = pg.locator('.tr-big').inner_text().replace('\n', ''); line = pg.locator('#stage-line').inner_text(); out = pg.locator('#outside-line').inner_text()
+                check(big != '100%' and 'All five stages complete' not in line and 'outside scope' in line and '6 pieces outside scope' in out, '%s: work outside the scope keeps the card below 100%% (%s · %s · %s)' % (who, big, line, out))
+            shot(B, 'h17b_brand_outside_scope')
+            # Removing a type whose pieces are all unsent: confirm, and the unsent pieces go with it.
+            check(scope_project('scopec', 'Scope Unsent', IG4, [(None, False, False)] * 6), 'project with 6 unsent Reels')
+            nav(A, '#j.scopec'); A.wait_for_selector('h1:has-text("Scope Unsent")')
+            btn(A, 'Edit scope').click(); A.wait_for_selector('.modal')
+            A.locator('.modal .sub-card .between:has-text("Instagram") button:has-text("Remove platform")').click()
+            btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.warn')
+            check('the 6 unsent pieces will be removed' in A.locator('#scope-impact').inner_text(), 'removing a type with only unsent pieces asks for confirmation')
+            btn(A, 'Confirm and save').click(); toast(A, 'Project updated')
+            sc = state(A)
+            left = [a for a in sc['influencers']['scopeci']['assignments'].values() if a['platform'] == 'instagram' and not a.get('removed')]
+            check([c['type'] for c in sc['projects']['scopec']['content']] == ['post'] and not left, 'confirmed: Instagram left the scope and its 6 unsent pieces were removed')
+            # PH-014: quantity 0 or a decimal is refused, not saved as 1.
+            nav(A, '#p.' + PID + '.projects'); btn(A, 'New project').first.click(); A.wait_for_selector('.modal')
+            A.fill('#pj-name', 'Zero Check'); A.select_option('#pj-msa', index=1); A.click('.modal .opt:has-text("Vaseline")')
+            btn(A, 'Add deliverable').click(); A.click('.modal .pop button:has-text("Content")'); A.click('.modal .pop button:has-text("Instagram")')
+            for bad in ('0', '2,5', ''):
+                A.locator('.modal .sub-card input[inputmode="numeric"]').first.fill(bad)
+                btn(A, 'Create project').click(); A.wait_for_selector('#pj-qty-err')
+                check(A.locator('.modal .sub-card input.invalid').count() == 1 and A.locator('.modal').count() == 1, 'quantity %r refused with a message on the field' % bad)
+            check(not [v for v in state(A)['projects'].values() if v['name'] == 'Zero Check'], 'no project saved with a 0, decimal or empty quantity')
+            shot(A, 'h17c_qty_zero')
+            A.locator('.modal .sub-card input[inputmode="numeric"]').first.fill('3')
+            btn(A, 'Create project').click(); A.wait_for_selector('h1:has-text("Zero Check")')
+            zc = [v for v in state(A)['projects'].values() if v['name'] == 'Zero Check']
+            check(zc and zc[0]['content'][0]['qty'] == 3, 'a valid quantity still saves as typed (3)')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):

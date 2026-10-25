@@ -56,7 +56,7 @@ function ProjectSummary({ pr, p }) {
 }
 function StageTracker({ m }) {
   return html`<section className="tracker" aria-label="Project progress">
-    <div className="tr-sum"><div className="eyebrow">Overall progress</div><div className="tr-big">${Math.round(m.overall * 100)}<small>%</small></div><div className=${'bar' + (m.overall >= 1 ? ' ok' : '')}><i style=${{ width: (m.overall * 100) + '%' }}></i></div><div className="small t2" id="stage-line">${stageText(m)}</div></div>
+    <div className="tr-sum"><div className="eyebrow">Overall progress</div><div className="tr-big">${Math.round(m.overall * 100)}<small>%</small></div><div className=${'bar' + (m.overall >= 1 ? ' ok' : '')}><i style=${{ width: (m.overall * 100) + '%' }}></i></div><div className="small t2" id="stage-line">${stageText(m)}</div>${m.asgOver > 0 ? html`<div className="xs" id="outside-line" style=${{ color: 'var(--warn)', marginTop: '4px', fontWeight: 600 }}>${plural(m.asgOver, 'piece') + ' outside scope'}${m.outsideOpen ? ' · ' + m.outsideOpen + ' without performance data' : ''}</div>` : null}</div>
     <ol className="stepper">${m.stages.map((st, i) => html`<li key=${st.key} className=${'stp' + (st.pct >= 1 ? ' done' : '') + (i === m.currentIdx && m.overall < 1 ? ' cur' : '')} aria-current=${i === m.currentIdx ? 'step' : undefined}>
       <span className="stp-c">${st.pct >= 1 ? html`<${Icon} n="check" s=${12}/>` : i + 1}</span><span className="stp-l">${st.label}</span><span className="stp-p">${Math.round(st.pct * 100)}%</span><div className=${'bar' + (st.pct >= 1 ? ' ok' : '')}><i style=${{ width: (st.pct * 100) + '%' }}></i></div><span className="stp-d">${st.detail}</span></li>`)}</ol>
   </section>`;
@@ -925,6 +925,22 @@ function FinScheduleModal({ p, f }) {
 }
 
 /* ===================== setup modals ===================== */
+const qtyOk = v => /^\s*\d+\s*$/.test(String(v == null ? '' : v)) && parseInt(v, 10) >= 1;
+// Content types whose target drops below what is already assigned, with how far their pieces got.
+function scopeCuts(pr, infs, merged) {
+  const old = {}; (pr.content || []).forEach(c => { const k = c.platform + ':' + c.type; old[k] = (old[k] || 0) + (+c.qty || 0); });
+  const by = {};
+  infs.forEach(inf => asgList(inf).forEach(a => {
+    const k = a.platform + ':' + a.type;
+    const b = by[k] = by[k] || { key: k, platform: a.platform, type: a.type, assigned: 0, review: 0, approved: 0, live: 0, unsent: [] };
+    const rs = reviewState(a).key;
+    b.assigned++;
+    if (a.publish && a.publish.status === 'live') b.live++; else if (rs === 'approved') b.approved++; else if (rs !== 'none') b.review++; else b.unsent.push({ inf, a });
+  }));
+  return Object.values(by).map(b => Object.assign(b, { oldQty: old[b.key] || 0, newQty: merged[b.key] ? merged[b.key].qty : 0 }))
+    .filter(b => b.oldQty > 0 && b.newQty < b.oldQty && b.newQty < b.assigned)
+    .map(b => Object.assign(b, { removed: b.newQty === 0 }));
+}
 function ProjectModal({ partnershipId, projectId }) {
   const { s, closeModal, go } = useCtx();
   const p = partnerOf(s, partnershipId);
@@ -937,6 +953,7 @@ function ProjectModal({ partnershipId, projectId }) {
   const [creators, setCreators] = useState(() => ((existing && existing.creators) || []).map(c => ({ id: c.id || rid(), tier: c.tier, count: String(c.count || 1) })));
   const [menu, setMenu] = useState(null); const [newBrand, setNewBrand] = useState(''); const [busy, setBusy] = useState(false);
   const [protocol, setProtocol] = useState([]);
+  const [checked, setChecked] = useState(false); const [impact, setImpact] = useState(null);
   const msa = msas.find(m => m.id === msaId);
   const brands = msa ? brandList(msa) : [];
   const usedPlats = groups.map(g => g.platform);
@@ -949,23 +966,38 @@ function ProjectModal({ partnershipId, projectId }) {
     if (!msaId) return toast('Choose the master agreement this project sits under.', 'warn');
     const bids = brandIds.filter(b => brands.some(x => x.id === b));
     if (!bids.length) return toast('Choose at least one brand.', 'warn');
+    const bad = groups.flatMap(g => g.items.filter(it => !qtyOk(it.qty)).map(it => dLabel(g.platform, it.type))).concat(creators.filter(c => !qtyOk(c.count)).map(c => TIERS[c.tier].label + ' creators'));
+    setChecked(true);
+    if (bad.length) return toast('Enter a whole number of at least 1 for ' + bad.join(', ') + '.', 'warn');
     const merged = {};
-    groups.forEach(g => g.items.forEach(it => { const k = g.platform + ':' + it.type; const q = Math.max(1, parseInt(it.qty) || 1); if (merged[k]) merged[k].qty += q; else merged[k] = { id: it.id, platform: g.platform, type: it.type, qty: q }; }));
+    groups.forEach(g => g.items.forEach(it => { const k = g.platform + ':' + it.type; const q = parseInt(it.qty, 10); if (merged[k]) merged[k].qty += q; else merged[k] = { id: it.id, platform: g.platform, type: it.type, qty: q }; }));
     const content = Object.values(merged);
-    const cr = {}; creators.forEach(c => { const q = Math.max(1, parseInt(c.count) || 1); if (cr[c.tier]) cr[c.tier].count += q; else cr[c.tier] = { id: c.id, tier: c.tier, count: q }; });
+    const cr = {}; creators.forEach(c => { const q = parseInt(c.count, 10); if (cr[c.tier]) cr[c.tier].count += q; else cr[c.tier] = { id: c.id, tier: c.tier, count: q }; });
     const creatorsOut = Object.values(cr);
     if (!content.length && !creatorsOut.length) return toast('Add at least one deliverable.', 'warn');
+    // Scope cuts below what is already assigned: a type with pieces sent for review, approved or live cannot leave the scope;
+    // otherwise the agency confirms, and a removed type takes its unsent pieces with it.
+    const cuts = existing ? scopeCuts(existing, infsOf(s, existing.id), merged) : [];
+    const blocked = cuts.filter(c => c.removed && c.assigned > c.unsent.length);
+    const sig = JSON.stringify(content.map(c => c.platform + ':' + c.type + ':' + c.qty));
+    if (blocked.length) { setImpact({ cuts, blocked: true, sig }); return toast(blocked.map(c => dLabel(c.platform, c.type)).join(', ') + ' cannot leave the scope: pieces are already in review, approved or live.', 'warn'); }
+    if (cuts.length && !(impact && impact.sig === sig && !impact.blocked)) { setImpact({ cuts, blocked: false, sig }); return; }
     setBusy(true);
     const data = { name: name.trim(), msaId, brandIds: bids, content, creators: creatorsOut, updatedAt: nowIso() };
     const scopeText = content.map(c => c.qty + '× ' + dLabel(c.platform, c.type)).concat(creatorsOut.map(c => c.count + ' ' + TIERS[c.tier].short.toLowerCase())).join(', ');
-    if (existing) { const ok = await act(async () => { await dbx.update('projects', existing.id, data); logEvent('project.update', { pid: p.id, prid: existing.id, refName: data.name, text: 'Updated the scope of ' + data.name + ': ' + scopeText }); }, 'Project updated'); setBusy(false); if (ok !== false) closeModal(); return; }
+    if (existing) { const ok = await act(async () => {
+      await dbx.update('projects', existing.id, data);
+      logEvent('project.update', { pid: p.id, prid: existing.id, refName: data.name, text: 'Updated the scope of ' + data.name + ': ' + scopeText });
+      const drop = {}; cuts.filter(c => c.removed).forEach(c => c.unsent.forEach(({ inf, a }) => { (drop[inf.id] = drop[inf.id] || { name: inf.name, upd: {} }).upd[a.id] = { removed: true, removedAt: nowIso() }; }));
+      for (const [iid, d] of Object.entries(drop)) { await dbx.update('influencers', iid, { assignments: d.upd }); logEvent('assignment.remove', { pid: p.id, prid: existing.id, ref: iid, refName: d.name, text: 'Removed ' + plural(Object.keys(d.upd).length, 'unsent piece') + ' from ' + d.name + ' (no longer in scope)' }); }
+    }, 'Project updated'); setBusy(false); if (ok !== false) closeModal(); return; }
     const id = rid();
     const ok = await act(async () => { await dbx.set('projects', id, Object.assign(data, { partnershipId: p.id, status: 'active', masterfile: { created: false, status: 'none', round: 0 }, createdAt: nowIso(), createdBy: store.me.id || null })); logEvent('project.create', { pid: p.id, prid: id, refName: data.name, text: 'Created project ' + data.name + ' under ' + msa.label + ': ' + scopeText + (protocol.length ? ' (with ' + plural(protocol.length, 'protocol file') + ')' : '') }); }, 'Project created');
     setBusy(false);
     if (ok !== false) { closeModal(); go({ view: 'project', id }); if (protocol.length) uploadProtocol({ id, name: data.name, partnershipId: p.id, brandIds: bids }, protocol); }
   };
   if (!msas.length) return html`<${Modal} title="New project" onClose=${closeModal}><div className="banner crit"><div className="b-body"><div className="b-title">Add a master agreement first</div><div className="small">A project sits under a master agreement. Upload it, or mark it as to be delivered, in Agreements & brands.</div></div></div><div><button className="btn btn-primary" onClick=${() => { closeModal(); go({ view: 'partnership', id: p.id, tab: 'agreements' }); }}>Open agreements</button></div><//>`;
-  return html`<${Modal} title=${existing ? 'Edit project scope' : 'New project'} wide=${true} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${busy} onClick=${save}>${existing ? 'Save changes' : 'Create project'}</button><//>`}>
+  return html`<${Modal} title=${existing ? 'Edit project scope' : 'New project'} wide=${true} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" id="pj-save" disabled=${busy} onClick=${save}>${existing ? (impact && !impact.blocked ? 'Confirm and save' : 'Save changes') : 'Create project'}</button><//>`}>
     <label className="field"><span>Project name</span><input className="input" id="pj-name" value=${name} onChange=${e => setName(e.target.value)} placeholder="e.g. Vaseline Summer Glow"/></label>
     <div className="grid2">
       <label className="field"><span>Master agreement</span><select className="input" id="pj-msa" value=${msaId} onChange=${e => { setMsaId(e.target.value); setBrandIds([]); }}><option value="">Choose…</option>${msas.map(m => html`<option key=${m.id} value=${m.id}>${m.label}${m.status !== 'uploaded' ? ' (to be delivered)' : ''}</option>`)}</select></label>
@@ -981,18 +1013,22 @@ function ProjectModal({ partnershipId, projectId }) {
           <div className="between"><span className="row"><${Plat} p=${g.platform}/><strong className="small">${PLATFORMS[g.platform].label}</strong></span><button className="btn btn-ghost btn-sm" onClick=${() => setGroups(gs => gs.filter(x => x.id !== g.id))}><${Icon} n="trash" s=${13}/>Remove platform</button></div>
           ${g.items.map(it => html`<div key=${it.id} className="row nw">
             <label className="field" style=${{ flex: 1 }}><span>Content type</span><select className="input sm" value=${it.type} onChange=${e => updGroup(g.id, gg => Object.assign({}, gg, { items: gg.items.map(x => x.id === it.id ? Object.assign({}, x, { type: e.target.value }) : x) }))}>${types.map(t => html`<option key=${t} value=${t} disabled=${t !== it.type && g.items.some(x => x.type === t)}>${TYPE_LABEL[t]}</option>`)}</select></label>
-            <label className="field" style=${{ width: '100px' }}><span>Quantity</span><input className="input sm num" inputMode="numeric" value=${it.qty} onChange=${e => updGroup(g.id, gg => Object.assign({}, gg, { items: gg.items.map(x => x.id === it.id ? Object.assign({}, x, { qty: e.target.value }) : x) }))}/></label>
+            <label className="field" style=${{ width: '100px' }}><span>Quantity</span><input className=${'input sm num' + (checked && !qtyOk(it.qty) ? ' invalid' : '')} aria-invalid=${checked && !qtyOk(it.qty)} inputMode="numeric" value=${it.qty} onChange=${e => updGroup(g.id, gg => Object.assign({}, gg, { items: gg.items.map(x => x.id === it.id ? Object.assign({}, x, { qty: e.target.value }) : x) }))}/></label>
             <button className="icon-btn" style=${{ alignSelf: 'flex-end' }} aria-label="Remove content type" onClick=${() => updGroup(g.id, gg => Object.assign({}, gg, { items: gg.items.filter(x => x.id !== it.id) }))}><${Icon} n="x"/></button></div>`)}
           ${free.length ? html`<div><button className="btn btn-ghost btn-sm" onClick=${() => updGroup(g.id, gg => Object.assign({}, gg, { items: gg.items.concat([{ id: rid(), type: free[0], qty: '1' }]) }))}><${Icon} n="plus" s=${13}/>Add content type</button></div>` : null}</div>`; })}
       </div>` : null}
       ${creators.length ? html`<div className="sub-card"><span className="eyebrow">Creators</span>
         ${creators.map(c => html`<div key=${c.id} className="row nw">
           <label className="field" style=${{ flex: 1 }}><span>Creator type</span><select className="input sm" value=${c.tier} onChange=${e => setCreators(cs => cs.map(x => x.id === c.id ? Object.assign({}, x, { tier: e.target.value }) : x))}>${Object.entries(TIERS).map(([k, v]) => html`<option key=${k} value=${k} disabled=${k !== c.tier && creators.some(x => x.tier === k)}>${v.label} (${v.range})</option>`)}</select></label>
-          <label className="field" style=${{ width: '100px' }}><span>Number</span><input className="input sm num" inputMode="numeric" value=${c.count} onChange=${e => setCreators(cs => cs.map(x => x.id === c.id ? Object.assign({}, x, { count: e.target.value }) : x))}/></label>
+          <label className="field" style=${{ width: '100px' }}><span>Number</span><input className=${'input sm num' + (checked && !qtyOk(c.count) ? ' invalid' : '')} aria-invalid=${checked && !qtyOk(c.count)} inputMode="numeric" value=${c.count} onChange=${e => setCreators(cs => cs.map(x => x.id === c.id ? Object.assign({}, x, { count: e.target.value }) : x))}/></label>
           <button className="icon-btn" style=${{ alignSelf: 'flex-end' }} aria-label="Remove creator type" onClick=${() => setCreators(cs => cs.filter(x => x.id !== c.id))}><${Icon} n="x"/></button></div>`)}
       </div>` : null}
       ${!groups.length && !creators.length ? html`<p className="t3 small">Add content (platform and content types with quantities) and creators (nano or micro, with how many).</p>` : null}
+      ${checked && (groups.some(g => g.items.some(it => !qtyOk(it.qty))) || creators.some(c => !qtyOk(c.count))) ? html`<p className="small" id="pj-qty-err" role="alert" style=${{ color: 'var(--crit)' }}>Quantities and creator numbers must be whole numbers of at least 1.</p>` : null}
     </div>
+    ${impact ? html`<div className=${'banner ' + (impact.blocked ? 'crit' : 'warn')} id="scope-impact" role="alert"><${Icon} n="alert" s=${18}/><div className="b-body"><div className="b-title">${impact.blocked ? 'This change would drop work that is already under way' : 'This change affects assigned content'}</div>
+      <ul className="small" style=${{ margin: '6px 0 0', paddingLeft: '18px' }}>${impact.cuts.map(c => html`<li key=${c.key}><strong>${dLabel(c.platform, c.type)}</strong>: ${c.removed ? 'removed from scope' : 'target ' + c.oldQty + ' → ' + c.newQty} · ${plural(c.assigned, 'piece')} assigned (${c.review} in review, ${c.approved} approved, ${c.live} live)${c.removed ? (c.assigned > c.unsent.length ? ' · cannot be removed' : ' · the ' + plural(c.unsent.length, 'unsent piece') + ' will be removed') : ' · ' + (c.assigned - c.newQty) + ' will count as outside scope'}</li>`)}</ul>
+      <div className="small" style=${{ marginTop: '6px' }}>${impact.blocked ? 'Only types whose pieces are all unsent can leave the scope. Lower the quantity instead, or keep the type.' : 'Press Confirm and save to apply it.'}</div></div></div>` : null}
     ${!existing ? html`<div className="field"><span>Project protocol</span>
       <div className="row"><${FileButton} label=${protocol.length ? 'Add more files' : 'Upload project protocol'} cls="btn-sm" icon="upload" accept=${DOC_ACCEPT} multiple=${true} onFiles=${fs => setProtocol(cur => cur.concat(fs.filter(f => !cur.some(c => c.name === f.name && c.size === f.size))))}/>${protocol.map((f, k) => html`<span key=${k} className="tag"><span className="mono">${f.name}</span><button aria-label=${'Remove ' + f.name} onClick=${() => setProtocol(cur => cur.filter((_, j) => j !== k))}><${Icon} n="x" s=${11}/></button></span>`)}</div>
       <small>The agreed brief for this project (PDF, Word, PowerPoint…). It is stored with the project and Claude turns it into the project summary at the top of the project page.</small></div>` : null}

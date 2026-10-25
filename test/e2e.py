@@ -194,6 +194,11 @@ def main():
             btn('Add deliverable').click(); page.click('.modal .pop button:has-text("Creator")')
             page.locator('.modal button:has-text("Upload project protocol") + input[type=file]').set_input_files(str(FIX / 'protocol.pdf'))
             page.wait_for_selector('.modal .tag:has-text("protocol.pdf")')
+            for bad in ('0', '1.5'):
+                page.locator('.modal .sub-card input[inputmode="numeric"]').first.fill(bad)
+                btn('Create project').click(); page.wait_for_selector('#pj-qty-err')
+                check(page.locator('.modal .sub-card input.invalid').count() == 1 and not docs('projects'), 'quantity %r refused with a message, nothing saved' % bad)
+            page.locator('.modal .sub-card input[inputmode="numeric"]').first.fill('2')
             btn('Create project').click()
             page.wait_for_selector('h1:has-text("Summer Glow")')
             toast_wait('Project summary updated', 20000)
@@ -429,7 +434,18 @@ def main():
                 line = page.locator('#stage-line').inner_text()
                 check(line == 'Stage 5 of 5 · Performance data under way · still open: Content × Influencer match (5 of 7 assigned)', '%s: stage line shows the furthest stage under way and the open one: %s' % (who, line))
                 shot('13b_totals_' + who)
-            page.evaluate('() => { const d = window.__mockdb.get(); delete d["projects/tchk"]; delete d["influencers/tchk1"]; window.__mockdb.set(d); }')
+            # A scope that no longer holds Instagram while 6 Reels are assigned (one posted): the card is never 100%.
+            page.evaluate('''() => { const d = window.__mockdb.get(); const pr = JSON.parse(JSON.stringify(d["projects/tchk"]));
+                pr.name = "Scope Gone"; pr.content = [{ platform: "tiktok", type: "post", qty: 1 }]; d["projects/tgone"] = pr;
+                const inf = JSON.parse(JSON.stringify(d["influencers/tchk1"])); inf.projectId = "tgone";
+                for (const k of Object.keys(inf.assignments)) inf.assignments[k].review = { status: "approved" };
+                inf.assignments.t0.publish = { status: "live" }; inf.assignments.t0.perf = { views: 900, likes: 40 };
+                d["influencers/tgone1"] = inf; window.__mockdb.set(d); }''')
+            for who in ('owner', 'can'):
+                login(who); nav('#j.tgone'); page.wait_for_selector('#stage-line')
+                big = page.locator('.tr-big').inner_text().replace('\n', ''); line = page.locator('#stage-line').inner_text(); out = page.locator('#outside-line').inner_text()
+                check(big == '99%' and line == 'Scope complete · 5 pieces outside scope still open' and out.startswith('6 pieces outside scope'), '%s: Reels outside the scope keep the card below 100%% (%s · %s · %s)' % (who, big, line, out))
+            page.evaluate('() => { const d = window.__mockdb.get(); for (const k of ["projects/tchk", "influencers/tchk1", "projects/tgone", "influencers/tgone1"]) delete d[k]; window.__mockdb.set(d); }')
             login('owner')
             nav('#d.all'); page.wait_for_selector('h1:has-text("Dashboards")')
             check(page.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '3', 'dashboard: 3 unique influencers')

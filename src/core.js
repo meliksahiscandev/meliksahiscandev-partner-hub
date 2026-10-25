@@ -387,13 +387,16 @@ function projectMetrics(pr, infs) {
     { pct: ratio('live'), detail: of('live') + ' posted' },
     { pct: ratio('data'), detail: of('data') + ' with data' },
   ].map((x, i) => Object.assign({}, STAGES[i], x, { pct: Math.max(0, Math.min(1, x.pct || 0)) }));
-  const overall = stages.reduce((t, x) => t + x.pct, 0) / stages.length;
+  // Pieces outside the scope (a type no longer in scope, or above its target) are counted on their own; while any is still
+  // without performance data the project is not complete, so a scope edit can never turn open work into 100%.
+  const outsideOpen = totalQty <= 0 ? 0 : targets.concat(Object.values(extra)).reduce((t, x) => t + Math.min(Math.max(0, x.assigned - x.qty), x.assigned - x.data), 0);
+  const overall = Math.min(outsideOpen > 0 ? 0.99 : 1, stages.reduce((t, x) => t + x.pct, 0) / stages.length);
   const firstOpen = stages.findIndex(x => x.pct < 1);
   let furthestIdx = -1; stages.forEach((x, i) => { if (x.pct > 0) furthestIdx = i; });
   const asgCapped = totalQty > 0 ? capSum('assigned') : asgTotal;
   return {
     targets: targets.concat(Object.values(extra)), totalQty, creators, creatorTotal, stages, overall,
-    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, asgCapped, asgOver: asgTotal - asgCapped, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
+    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, asgCapped, asgOver: asgTotal - asgCapped, outsideOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
     delivered: totalQty > 0 ? capSum('live') : asgLive, remaining: totalQty > 0 ? Math.max(0, totalQty - capSum('live')) : Math.max(0, asgTotal - asgLive),
     pendingRows: mf.status === 'in_review' ? infs.filter(i => i.state === 'pending').length : 0,
     changeRows: infs.filter(i => openChanges(i.comments).length > 0).length,
@@ -403,6 +406,7 @@ function projectMetrics(pr, infs) {
 // One line for "where is this project": the first open stage, plus the furthest stage already under way when work has moved ahead of it.
 function stageText(m, short) {
   if (m.overall >= 1) return short ? 'Complete' : 'All five stages complete';
+  if (m.outsideOpen > 0 && m.stages.every(x => x.pct >= 1)) return short ? 'Scope complete · ' + m.outsideOpen + ' outside scope open' : 'Scope complete · ' + plural(m.outsideOpen, 'piece') + ' outside scope still open';
   const cur = m.stages[m.currentIdx];
   if (m.furthestIdx > m.currentIdx) {
     const far = m.stages[m.furthestIdx];
