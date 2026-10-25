@@ -15,6 +15,8 @@ const PBKDF2_ITER = 100000;
 const SESSION_DAYS = 30;
 const enc = new TextEncoder();
 
+// Agency-internal working files (the raw creator list behind a masterfile import): never served to customers. Mirrors agencyOnlyFile in src/core.js.
+const agencyOnlyFile = f => !!f && (f.folder === 'Masterfile Imports' || f.kind === 'masterfile');
 const LAZY = new Set(['filetext']); // large collections fetched on demand, not pushed in sync
 function csp(host) {
   return ["default-src 'self'", "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -209,6 +211,10 @@ export class Workspace extends DurableObject {
     }
     if (acc.type !== 'customer') return undefined;
     const A = acc.accounts;
+    // Agency-internal working files, their text index and their upload events never reach customers.
+    if (col === 'files' && agencyOnlyFile(data)) return undefined;
+    if (col === 'filetext' && agencyOnlyFile((this.getDoc('files/' + (data.fileId || id)) || {}).data)) return undefined;
+    if (col === 'audit') data = Object.assign({}, data, { events: Object.fromEntries(Object.entries(data.events || {}).filter(([, e]) => !(e && agencyOnlyFile(e.meta)))) });
     if (col === 'partnerships') { if (!A[id]) return undefined; const c = clone(data); if (c.summary && c.summary.data) c.summary.data.budget = ''; return c; }
     if (col === 'influencers') {
       if (!A[data.partnershipId]) return undefined;
@@ -571,7 +577,7 @@ export class Workspace extends DurableObject {
     const acc = this.access(user);
     if (acc.type !== 'agency') {
       const ref = this.q("SELECT data FROM docs WHERE col='files' AND deleted=0 AND json_extract(data,'$.assetId')=?", id);
-      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId]; })) return fail('not_found', 'No such file.', 404);
+      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId] && !agencyOnlyFile(d); })) return fail('not_found', 'No such file.', 404);
     }
     const chunks = this.q('SELECT data FROM blobs WHERE id=? ORDER BY idx', id);
     const out = new Uint8Array(meta.size); let o = 0;

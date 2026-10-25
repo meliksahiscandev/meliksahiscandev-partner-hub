@@ -81,7 +81,7 @@ function PartnershipView({ id, tab }) {
   if (!p || !isActive(p) || !visibleParts(s, role).some(x => x.id === id)) return html`<${Empty} title=${s.loaded.partnerships ? 'Partnership not found' : 'Loading…'} action=${s.loaded.partnerships ? html`<button className="btn" onClick=${() => go({ view: 'partnerships' })}>Back to partnerships</button>` : null}>${p && !isActive(p) && role.canAgency ? 'It is in the trash. Restore it from Files & storage → Trash.' : ''}<//>`;
   const prs = projectsOf(s, p.id);
   const members = invitesFor(s, 'customer', p.id).filter(i => i.status !== 'revoked');
-  const tabs = [{ key: 'overview', label: 'Overview' }, { key: 'agreements', label: 'Agreements & brands' }, { key: 'projects', label: 'Projects', count: prs.length }, { key: 'files', label: 'Files', count: filesOf(s, p.id).length }, { key: 'members', label: 'Members', count: members.length }, { key: 'activity', label: 'Activity' }];
+  const tabs = [{ key: 'overview', label: 'Overview' }, { key: 'agreements', label: 'Agreements & brands' }, { key: 'projects', label: 'Projects', count: prs.length }, { key: 'files', label: 'Files', count: filesOf(s, p.id).filter(f => !role.asCustomer || !agencyOnlyFile(f)).length }, { key: 'members', label: 'Members', count: members.length }, { key: 'activity', label: 'Activity' }];
   if (role.canFinance) tabs.push({ key: 'finance', label: 'Finance' });
   const cur = tabs.some(t => t.key === tab) ? tab : 'overview';
   const myRole = role.isCustomer ? role.customerRole(p.id) : null;
@@ -282,8 +282,8 @@ function FilesTable({ files, showPath, empty }) {
   </tbody></table></div>`;
 }
 function PartnershipFiles({ p }) {
-  const { s } = useCtx();
-  const files = s.files.filter(f => f.partnershipId === p.id && (f.status === 'active' || f.status === 'failed'));
+  const { s, role } = useCtx();
+  const files = filesFor(s, role).filter(f => f.partnershipId === p.id && (f.status === 'active' || f.status === 'failed'));
   const prs = projectsOf(s, p.id);
   const folders = [{ key: 'all', label: 'All files' }, { key: FOLDERS.docs, label: FOLDERS.docs }, { key: FOLDERS.msa, label: FOLDERS.msa }];
   prs.forEach(pr => { folders.push({ key: pr.id + '|' + FOLDERS.shots, label: pr.name + ' / ' + FOLDERS.shots, pr: pr.id, f: FOLDERS.shots }); folders.push({ key: pr.id + '|' + FOLDERS.perf, label: pr.name + ' / ' + FOLDERS.perf, pr: pr.id, f: FOLDERS.perf }); });
@@ -311,14 +311,14 @@ function AllFiles() {
   const { s, role } = useCtx();
   const parts = visibleParts(s, role); const pids = new Set(parts.map(p => p.id));
   const [pid, setPid] = useState(''); const [folder, setFolder] = useState(''); const [q, setQ] = useState('');
-  const files = s.files.filter(f => (f.status === 'active' || f.status === 'failed') && (role.isAgency ? (!f.partnershipId || pids.has(f.partnershipId)) : pids.has(f.partnershipId)))
+  const files = filesFor(s, role).filter(f => (f.status === 'active' || f.status === 'failed') && (role.isAgency ? (!f.partnershipId || pids.has(f.partnershipId)) : pids.has(f.partnershipId)))
     .filter(f => !pid || (pid === '_ws' ? !f.partnershipId : f.partnershipId === pid)).filter(f => !folder || f.folder === folder)
     .filter(f => !q.trim() || (f.name + ' ' + (f.originalName || '') + ' ' + (f.sha256 || '')).toLowerCase().includes(q.trim().toLowerCase()))
     .sort(byCreated).reverse();
   const total = files.reduce((t, f) => t + (f.size || 0), 0);
   return html`<div className="stack">
     <div className="row"><select className="input sm" style=${{ width: 'auto' }} value=${pid} onChange=${e => setPid(e.target.value)} aria-label="Partnership"><option value="">All partnerships</option>${parts.map(p => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}${role.isAgency ? html`<option value="_ws">Workspace (recovered)</option>` : null}</select>
-      <select className="input sm" style=${{ width: 'auto' }} value=${folder} onChange=${e => setFolder(e.target.value)} aria-label="Folder"><option value="">All folders</option>${Object.values(FOLDERS).map(f => html`<option key=${f} value=${f}>${f}</option>`)}</select>
+      <select className="input sm" style=${{ width: 'auto' }} value=${folder} onChange=${e => setFolder(e.target.value)} aria-label="Folder"><option value="">All folders</option>${Object.values(FOLDERS).filter(f => !role.asCustomer || f !== FOLDERS.imports).map(f => html`<option key=${f} value=${f}>${f}</option>`)}</select>
       <input className="input sm" style=${{ maxWidth: '260px' }} id="files-q" value=${q} onChange=${e => setQ(e.target.value)} placeholder="Name or checksum"/><span className="t3 small">${plural(files.length, 'file')} · ${fmtBytes(total)}</span></div>
     <${FilesTable} files=${files} showPath=${true} empty="No files match."/>
   </div>`;

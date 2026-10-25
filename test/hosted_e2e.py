@@ -420,6 +420,29 @@ def main():
             check(imp['Bora Tan']['tier'] == 'nano' and imp['Bora Tan']['platforms']['tiktok']['followers'] == 23400, 'type from the file kept; missing numbers fetched')
             check(imp['cem.tt']['tier'] == 'micro' and imp['cem.tt']['platforms']['tiktok']['handle'] == 'cem.tt', 'name from handle; type set from fetched followers')
             check(any(v['folder'] == 'Masterfile Imports' and v['verified'] for v in st['files'].values()), 'imported file stored and verified in Masterfile Imports')
+            # The raw import file is agency-internal: the brand never receives, reads or downloads it (PH-012).
+            IMPF = [k for k, v in st['files'].items() if v['folder'] == 'Masterfile Imports' and v.get('status') == 'active'][0]
+            IMPA = st['files'][IMPF]['assetId']
+            r = api(A, '/api/db/op', {'op': 'set', 'path': 'filetext/' + IMPF, 'data': {'fileId': IMPF, 'partnershipId': PID, 'text': 'name,fee', 'createdAt': '2026-10-21T10:00:00.000Z'}})
+            check(r['status'] == 200, 'agency can index text for the import file')
+            blob = lambda pg: pg.context.request.get(BASE + '/_blob/' + IMPA).status
+            check(blob(A) == 200, 'agency still downloads the import file')
+            sb = state(B)
+            check(IMPF not in sb.get('files', {}), 'brand sync carries no Masterfile Imports file')
+            check(api(B, '/api/db/doc?path=files/' + IMPF)['body']['exists'] is False and api(B, '/api/db/doc?path=filetext/' + IMPF)['body']['exists'] is False, 'brand direct read of the import file and its text: exists false')
+            bl = api(B, '/api/db/list?col=files')
+            check(bl['status'] == 200 and not any(d['path'] == 'files/' + IMPF for d in bl['body']['docs']), 'brand file listing has no import file')
+            check(blob(B) == 404, 'brand download of the import file: 404')
+            bev = [e for d in sb.get('audit', {}).values() for e in (d.get('events') or {}).values()]
+            check(not any((e.get('meta') or {}).get('folder') == 'Masterfile Imports' for e in bev) and not any(e.get('ref') == IMPF for e in bev), 'brand activity log has no import file event')
+            nav(B, '#files'); B.wait_for_selector('h1:has-text("Files")'); B.wait_for_timeout(500)
+            check(B.locator('text=creators.xlsx').count() == 0 and B.locator('option:has-text("Masterfile Imports")').count() == 0, 'brand Files & storage: no Masterfile Imports folder or file')
+            nav(B, '#p.' + PID + '.files'); B.wait_for_selector('.folder-nav'); B.wait_for_timeout(300)
+            check(B.locator('text=creators.xlsx').count() == 0, 'brand partnership Files tab: no import file')
+            shot(B, 'h15b_brand_files_no_import')
+            nav(A, '#files'); A.wait_for_selector('h1:has-text("Files")'); A.wait_for_timeout(400)
+            check(A.locator('#files-q').count() == 1 and A.locator('tr:has-text("creators.xlsx")').count() >= 1, 'agency Files & storage still lists the import file')
+            nav(A, '#j.' + [k for k, v in st['projects'].items() if v['name'] == 'Import Test'][0] + '.masterfile'); A.wait_for_selector('#mf-refresh')
             A.click('#mf-refresh'); toast(A, 'Stats updated for 4 profiles', 30000)
             check(True, 'Fetch all runs through every creator in the masterfile')
             A.wait_for_selector('tr:has-text("Bora Tan") .tier-clash')
@@ -511,6 +534,7 @@ def main():
             check(D.locator('#mf-import').count() == 0 and btn(D, 'Add influencer').count() == 0, 'view member gets no edit controls on the masterfile')
             sd = state(D)
             check('finance' not in sd, 'member sync contains no finance')
+            check(IMPF in sd.get('files', {}) and blob(D) == 200, 'agency member sees and downloads the import file')
             check(api(D, '/api/db/doc?path=finance/' + PID)['body']['exists'] is False, 'direct finance read refused for a member')
             ab = ((state(A)['partnerships'][PID].get('summary') or {}).get('data') or {}).get('budget')
             mb = ((sd['partnerships'][PID].get('summary') or {}).get('data') or {}).get('budget')
