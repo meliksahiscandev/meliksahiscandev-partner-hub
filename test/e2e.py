@@ -441,6 +441,11 @@ def main():
             btn('Export CSV').click(); page.wait_for_timeout(400)
             dcsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("dashboard")).pop()')
             check(dcsv and 'Elif Yilmaz' in dcsv['text'] and 'Summer Glow' in dcsv['text'], 'dashboard CSV export')
+            import csv as _csv, io as _io
+            crow = list(_csv.reader(_io.StringIO(dcsv['text'].lstrip('\ufeff').split('\n\n')[0])))
+            ch = crow[0]; ix = [ch.index(k) for k in ('Views', 'Reach', 'Engagements')]
+            nodata = [r for r in crow[1:] if r and r[0] != 'Elif Yilmaz']; elif_r = next(r for r in crow[1:] if r and r[0] == 'Elif Yilmaz')
+            check(nodata and all(r[i] == '' for r in nodata for i in ix) and elif_r[ix[0]] == '241000', 'dashboard CSV: creators without performance data have empty Views/Reach/Engagements, not 0 (%s)' % '; '.join(r[0] + ' ' + '/'.join(r[i] for i in ix) for r in crow[1:] if r))
             page.locator('#dash-creators button.lnk:has-text("Elif Yilmaz")').click(); page.wait_for_selector('#creator-dash')
             check(page.locator('h1:has-text("Elif Yilmaz")').count() == 1 and page.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').count() == 1, 'influencer dashboard opens from the name with its campaigns')
             ck = page.locator('#creator-dash .kpi:has-text("Views") .v').first.inner_text()

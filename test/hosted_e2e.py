@@ -271,10 +271,50 @@ def main():
             nav(A, '#d.all'); A.wait_for_selector('h1:has-text("Dashboards")')
             check(A.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '2', 'dashboard: 2 unique influencers')
             check(A.locator('.kpi:has-text("Views") .v').first.inner_text() not in ('—', '0'), 'dashboard: views consolidated (%s)' % A.locator('.kpi:has-text("Views") .v').first.inner_text())
+            # A metric no source reported (TikTok public data has no reach) is unknown, not zero: '—' on screen, empty in the CSV.
+            mert = A.locator('#dash-creators tbody tr:has-text("Mert Kaya") td'); elif_ = A.locator('#dash-creators tbody tr:has-text("Elif Yilmaz") td')
+            check(mert.nth(7).inner_text() == '88,000' and mert.nth(8).inner_text() == '—', 'dashboard: public-only TikTok piece shows Reach — not 0 (views %s, reach %s)' % (mert.nth(7).inner_text(), mert.nth(8).inner_text()))
+            check(elif_.nth(8).inner_text() == '40,000', 'dashboard: reach from the report still summed (%s)' % elif_.nth(8).inner_text())
+            ikpi = A.locator('.kpi:has-text("Impressions")')
+            check(ikpi.locator('.v').inner_text() == '—' and ikpi.locator('.s').inner_text() == 'no data', 'dashboard: Impressions KPI without any data shows — and "no data" (%s / %s)' % (ikpi.locator('.v').inner_text(), ikpi.locator('.s').inner_text()))
+            with A.expect_download() as dl:
+                btn(A, 'Export CSV').click()
+            import csv as _csv, io as _io
+            rows = list(_csv.reader(_io.StringIO(open(dl.value.path(), encoding='utf-8-sig').read())))
+            hdr = rows[0]; mrow = next(r for r in rows if r and r[0] == 'Mert Kaya')
+            check(mrow[hdr.index('Views')] == '88000' and mrow[hdr.index('Reach')] == '', 'dashboard CSV: unknown reach is an empty cell, not 0 (%s)' % mrow[hdr.index('Reach')])
+            nav(B, '#dashboards'); B.wait_for_selector('#dash-creators tbody tr:has-text("Mert Kaya")')
+            bm = B.locator('#dash-creators tbody tr:has-text("Mert Kaya") td')
+            check(bm.nth(8).inner_text() == '—' and B.locator('.kpi:has-text("Impressions") .v').inner_text() == '—', 'customer sees the same — for unknown reach and impressions')
             nav(B, '#dashboards'); B.wait_for_selector('h1:has-text("Dashboards")')
             check(B.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '2', 'customer sees the same dashboard for their projects')
             check(B.locator('.mini-tag').count() == 0, 'no agency-internal markers on the customer dashboard')
             shot(A, 'h09b_dashboard')
+            # Secondary text (--text-3) passes WCAG AA (4.5:1) on every panel colour in both themes; login.html uses the same tokens.
+            def lum(h):
+                c = [int(h.strip().lstrip('#')[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+                c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+                return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+            def ratio(a, b):
+                la, lb = sorted([lum(a), lum(b)], reverse=True); return (la + 0.05) / (lb + 0.05)
+            TOK = '(t) => { const r = document.documentElement; const old = r.getAttribute("data-theme"); if (t) r.setAttribute("data-theme", t); else r.removeAttribute("data-theme"); const cs = getComputedStyle(r); const o = {}; ["--bg", "--surface", "--surface-2", "--sunken", "--raised", "--text-2", "--text-3"].forEach(k => { o[k] = cs.getPropertyValue(k).trim(); }); if (old) r.setAttribute("data-theme", old); else r.removeAttribute("data-theme"); return o; }'
+            app_tok = {}
+            for theme in ('dark', 'light'):
+                tk = A.evaluate(TOK, None if theme == 'dark' else 'light'); app_tok[theme] = tk
+                worst = min(ratio(tk['--text-3'], tk[k]) for k in ('--bg', '--surface', '--surface-2', '--sunken', '--raised') if tk[k])
+                check(worst >= 4.5 and ratio(tk['--text-2'], tk['--bg']) > ratio(tk['--text-3'], tk['--bg']), '%s theme: text-3 %s is at least 4.5:1 on every panel (worst %.2f) and stays dimmer than text-2' % (theme, tk['--text-3'], worst))
+            L_ctx, L = new_ctx('login'); L.goto(BASE + '/login'); L.wait_for_selector('form')
+            for theme in ('dark', 'light'):
+                lt = L.evaluate(TOK, None if theme == 'dark' else 'light')
+                check(lt['--text-3'].lower() == app_tok[theme]['--text-3'].lower(), 'login page %s theme uses the same text-3 (%s)' % (theme, lt['--text-3']))
+            L_ctx.close()
+            nav(A, '#j.' + PRID + '.match'); A.wait_for_timeout(500)
+            for theme in ('dark', 'light'):
+                A.evaluate('(t) => { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }', None if theme == 'dark' else 'light')
+                shot(A, 'h09c_text3_desktop_' + theme)
+                A.set_viewport_size({'width': 390, 'height': 844}); A.wait_for_timeout(300); shot(A, 'h09c_text3_mobile_' + theme)
+                A.set_viewport_size({'width': 1360, 'height': 900})
+            A.evaluate("() => document.documentElement.setAttribute('data-theme', 'dark')")
 
             print('10. Finance is owner-only on the server', flush=True)
             nav(A, '#p.' + PID + '.finance'); A.wait_for_selector('text=Start finance tracking')

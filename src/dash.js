@@ -30,6 +30,8 @@ function participationIndex(s, allPrs) {
   for (const pr of allPrs) for (const inf of infsOf(s, pr.id)) if (inf.state === 'approved' || asgList(inf).length) for (const k of creatorKeys(inf)) (idx[k] = idx[k] || new Set()).add(pr.id);
   return idx;
 }
+// Sum of the known values; null while no piece reported the metric (shown as '—', never as 0).
+const addKnown = (t, v) => v === null || v === undefined ? t : (t || 0) + v;
 function dashData(s, prs, allPrs) {
   const pieces = [], perProject = [];
   const fun = { target: 0, assigned: 0, approved: 0, live: 0, data: 0 };
@@ -42,17 +44,17 @@ function dashData(s, prs, allPrs) {
     const ps = [];
     for (const inf of infs) for (const a of asgList(inf)) if (a.publish && a.publish.status === 'live') { const x = { pr, inf, a, m: perfOf(a) }; pieces.push(x); ps.push(x); }
     const withD = ps.filter(x => x.m.has);
-    const views = withD.reduce((t, x) => t + (x.m.views || 0), 0), reach = withD.reduce((t, x) => t + (x.m.reach || 0), 0);
-    const eng = withD.reduce((t, x) => t + x.m.eng, 0), base = withD.reduce((t, x) => t + (x.m.base || 0), 0), engB = withD.reduce((t, x) => t + (x.m.base ? x.m.eng : 0), 0);
+    const views = withD.reduce((t, x) => addKnown(t, x.m.views), null), reach = withD.reduce((t, x) => addKnown(t, x.m.reach), null);
+    const eng = withD.reduce((t, x) => addKnown(t, x.m.eng), null), base = withD.reduce((t, x) => t + (x.m.base || 0), 0), engB = withD.reduce((t, x) => t + (x.m.base ? x.m.eng : 0), 0);
     perProject.push({ pr, p: partnerOf(s, pr.partnershipId), listed, approved, metrics: m, live: ps.length, withData: withD.length, views, reach, eng, er: base ? engB / base * 100 : null });
   }
   const withData = pieces.filter(x => x.m.has);
-  const sum = k => withData.reduce((t, x) => t + (x.m[k] || 0), 0);
+  const sum = k => withData.reduce((t, x) => addKnown(t, x.m[k]), null);
   const base = withData.reduce((t, x) => t + (x.m.base || 0), 0), engB = withData.reduce((t, x) => t + (x.m.base ? x.m.eng : 0), 0);
   const creators = groupCreators(allRows);
   const byKey = {}; creators.forEach(c => c.rows.forEach(r => { byKey[r.id] = c; }));
-  for (const c of creators) Object.assign(c, { live: 0, withData: 0, views: 0, reach: 0, eng: 0, base: 0, engB: 0 });
-  for (const x of pieces) { const c = byKey[x.inf.id]; if (!c) continue; c.live++; if (x.m.has) { c.withData++; c.views += x.m.views || 0; c.reach += x.m.reach || 0; c.eng += x.m.eng; c.base += x.m.base || 0; c.engB += x.m.base ? x.m.eng : 0; } }
+  for (const c of creators) Object.assign(c, { live: 0, withData: 0, views: null, reach: null, eng: null, base: 0, engB: 0 });
+  for (const x of pieces) { const c = byKey[x.inf.id]; if (!c) continue; c.live++; if (x.m.has) { c.withData++; c.views = addKnown(c.views, x.m.views); c.reach = addKnown(c.reach, x.m.reach); c.eng = addKnown(c.eng, x.m.eng); c.base += x.m.base || 0; c.engB += x.m.base ? x.m.eng : 0; } }
   creators.forEach(c => { c.er = c.base ? c.engB / c.base * 100 : null; });
   const pidx = participationIndex(s, allPrs || prs); const order = (allPrs || prs).map(x => x.id);
   creators.forEach(c => { const ids = new Set(); c.rows.forEach(r => { ids.add(r.projectId); creatorKeys(r).forEach(k => (pidx[k] || []).forEach(id => ids.add(id))); }); c.projectIds = order.filter(id => ids.has(id)); c.projects = c.projectIds.length; });
@@ -61,7 +63,7 @@ function dashData(s, prs, allPrs) {
   const profileErs = creators.map(c => c.profileEr).filter(v => v !== null);
   return {
     prs, perProject, pieces, withData, creators, fun,
-    totals: { views: sum('views'), reach: sum('reach'), impressions: sum('impressions'), likes: sum('likes'), comments: sum('comments'), shares: sum('shares'), saves: sum('saves'), eng: withData.reduce((t, x) => t + x.m.eng, 0), er: base ? engB / base * 100 : null },
+    totals: { views: sum('views'), reach: sum('reach'), impressions: sum('impressions'), likes: sum('likes'), comments: sum('comments'), shares: sum('shares'), saves: sum('saves'), eng: withData.reduce((t, x) => addKnown(t, x.m.eng), null), er: base ? engB / base * 100 : null },
     rows: allRows.length, unique: creators.length, potential: creators.reduce((t, c) => t + c.followers, 0),
     profileEr: profileErs.length ? profileErs.reduce((t, v) => t + v, 0) / profileErs.length : null,
     byDeliverable: group(x => x.a.platform + ':' + x.a.type, x => dLabel(x.a.platform, x.a.type)),
@@ -88,7 +90,9 @@ function Funnel({ fun }) {
   const top = Math.max(1, fun.target, fun.assigned);
   return html`<div className="funnel">${steps.map(([l, v, d], i) => html`<div key=${l} className="fstep"><div className="between"><span className="small"><strong>${l}</strong> <span className="t3">${d}</span></span><span className="num mono">${fmtInt(v)}${i && steps[0][1] ? html`<span className="t3 xs"> · ${Math.round(v / steps[0][1] * 100)}%</span>` : null}</span></div><div className="bar"><i style=${{ width: Math.min(100, v / top * 100) + '%' }}></i></div></div>`)}</div>`;
 }
-const DASH_SORT = { name: c => String(c.name).toLowerCase(), followers: c => c.followers, projects: c => c.projects, live: c => c.live, views: c => c.views, reach: c => c.reach, eng: c => c.eng, er: c => c.er === null ? -1 : c.er, profileEr: c => c.profileEr === null ? -1 : c.profileEr };
+const kpiSub = v => v === null ? 'no data' : fmtInt(v);
+const known = v => v === null ? -1 : v;
+const DASH_SORT = { name: c => String(c.name).toLowerCase(), followers: c => c.followers, projects: c => c.projects, live: c => c.live, views: c => known(c.views), reach: c => known(c.reach), eng: c => known(c.eng), er: c => c.er === null ? -1 : c.er, profileEr: c => c.profileEr === null ? -1 : c.profileEr };
 function DashboardsPage({ id }) {
   const { s, role, go } = useCtx();
   const sc = dashScope(s, role, id);
@@ -122,9 +126,9 @@ function DashboardsPage({ id }) {
       </select>${CAP.downloads ? html`<button className="btn" onClick=${exportCsv}><${Icon} n="down" s=${15}/>Export CSV</button>` : null}${sc.kind === 'project' ? html`<button className="btn" onClick=${() => go({ view: 'project', id: sc.prs[0].id, tab: 'performance' })}>Open project</button>` : null}`}/>
     <div className="stack s16">
       <div className="kpis">
-        <${Kpi} l="Views" v=${fmtK(t.views)} s=${fmtInt(t.views)}/>
-        <${Kpi} l="Reach" v=${fmtK(t.reach)} s=${fmtInt(t.reach)}/>
-        <${Kpi} l="Impressions" v=${fmtK(t.impressions)} s=${fmtInt(t.impressions)}/>
+        <${Kpi} l="Views" v=${fmtK(t.views)} s=${kpiSub(t.views)}/>
+        <${Kpi} l="Reach" v=${fmtK(t.reach)} s=${kpiSub(t.reach)}/>
+        <${Kpi} l="Impressions" v=${fmtK(t.impressions)} s=${kpiSub(t.impressions)}/>
         <${Kpi} l="Engagements" v=${fmtK(t.eng)} s=${fmtK(t.likes) + ' likes · ' + fmtK(t.comments) + ' comments · ' + fmtK(t.shares) + ' shares · ' + fmtK(t.saves) + ' saves'}/>
         <${Kpi} l="Engagement rate" v=${fmtPct(t.er)} s="engagements ÷ views (reach for stories)"/>
         <${Kpi} l="Content with data" v=${cov + '/' + live} cls=${cov < live ? 'warn' : ''} s=${live ? plural(live - cov, 'live piece') + ' without data' : 'nothing posted yet'}/>
@@ -174,8 +178,8 @@ function creatorScope(s, role, infId) {
   return c ? { c, all, parts } : null;
 }
 function creatorData(s, c, all) {
-  const add = (o, m) => { o.views += m.views || 0; o.reach += m.reach || 0; o.impressions += m.impressions || 0; o.likes += m.likes || 0; o.comments += m.comments || 0; o.shares += m.shares || 0; o.saves += m.saves || 0; o.eng += m.eng; o.base += m.base || 0; o.engB += m.base ? m.eng : 0; o.withData++; };
-  const zero = () => ({ assigned: 0, approved: 0, live: 0, withData: 0, views: 0, reach: 0, impressions: 0, likes: 0, comments: 0, shares: 0, saves: 0, eng: 0, base: 0, engB: 0 });
+  const add = (o, m) => { ['views', 'reach', 'impressions', 'likes', 'comments', 'shares', 'saves', 'eng'].forEach(k => { o[k] = addKnown(o[k], m[k]); }); o.base += m.base || 0; o.engB += m.base ? m.eng : 0; o.withData++; };
+  const zero = () => ({ assigned: 0, approved: 0, live: 0, withData: 0, views: null, reach: null, impressions: null, likes: null, comments: null, shares: null, saves: null, eng: null, base: 0, engB: 0 });
   const tot = zero(); const camps = []; const pieces = []; const byDel = {};
   for (const pr of all) {
     const rows = c.rows.filter(r => r.projectId === pr.id); if (!rows.length) continue;
@@ -200,7 +204,7 @@ function CreatorDashboard({ infId }) {
   const back = html`<button className="btn" onClick=${() => go({ view: 'dashboards' })}><${Icon} n="chart" s=${15}/>All influencers</button>`;
   if (!sc) return html`<${Fragment}><${PageHead} eyebrow="Influencer" title="Dashboards" actions=${back}/><${Empty} title=${s.loaded.influencers ? 'Influencer not found' : 'Loading…'}>${s.loaded.influencers ? 'This creator is not in any project you can see.' : ''}<//><//>`;
   const { c } = sc; const t = d.tot; const multi = sc.parts.length > 1;
-  const avgViews = t.withData ? t.views / t.withData : null;
+  const avgViews = t.withData && t.views !== null ? t.views / t.withData : null;
   const exportCsv = async () => {
     const q = v => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
     const lines = [['Campaign', 'Partnership', 'Deliverable', 'Status', 'Posted', 'Post link', 'Views', 'Reach', 'Impressions', 'Likes', 'Comments', 'Shares', 'Saves', 'ER %'].map(q).join(',')];
@@ -216,8 +220,8 @@ function CreatorDashboard({ infId }) {
       <div className="kpis">
         <${Kpi} l="Campaigns" v=${d.camps.length} s=${plural(d.partnerships, 'partnership')}/>
         <${Kpi} l="Content posted" v=${t.live + '/' + t.assigned} s=${t.approved + ' approved · ' + (t.assigned - t.live) + ' not live yet'}/>
-        <${Kpi} l="Views" v=${fmtK(t.views)} s=${fmtInt(t.views)}/>
-        <${Kpi} l="Reach" v=${fmtK(t.reach)} s=${fmtInt(t.reach)}/>
+        <${Kpi} l="Views" v=${fmtK(t.views)} s=${kpiSub(t.views)}/>
+        <${Kpi} l="Reach" v=${fmtK(t.reach)} s=${kpiSub(t.reach)}/>
         <${Kpi} l="Engagements" v=${fmtK(t.eng)} s=${fmtK(t.likes) + ' likes · ' + fmtK(t.comments) + ' comments · ' + fmtK(t.shares) + ' shares · ' + fmtK(t.saves) + ' saves'}/>
         <${Kpi} l="Engagement rate" v=${fmtPct(t.er)} s="engagements ÷ views (reach for stories)"/>
       </div>
