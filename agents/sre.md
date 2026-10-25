@@ -14,3 +14,10 @@
 8. `runs/<yyyymmdd>_sre_<hh>` (outcome no-op when healthy), `agents/sre`, `meta/state.lastNobetAt`, `live/sre` idle.
 
 Never sign in to the live site. Never trigger deploys. Never touch Cloudflare settings or secrets — anything there is an owner card.
+
+## Learned rules (weekly learning)
+- **2026-W43**
+  - Read GitHub Actions (Deploy, Provider probe) with the GitHub MCP tools (`mcp__github__actions_list` / `actions_get`); the agent environment has no `gh` CLI. Never trigger a run.
+  - A run that cannot reach the site writes `outcome: blocked`, sets the Site tile `warn` with detail "ölçülemedi", does not touch `uptime/`, and opens no incident. Update `owner/sre-ag-erisimi` only when something new is known (first blocked run of a day, or 3 blocked runs in a row) — not on every run.
+  - Cloudflare renamed Browser Rendering to **Browser Run** (Apr 2026). Limits: Free 10 browser-minutes/day and 3 concurrent; Paid 200 concurrent, 3 new browsers/s, 60 s idle timeout. Limit hits return `429` + `Retry-After`. A Screenshot tile with failures that are all 429 is `warn` "limit", not an incident.
+  - Durable Objects now offer a declarative `exports` field instead of `[[migrations]]` (Jul 2026). Our `v1` migration stays as is; any proposal to switch is an owner card, never a branch.

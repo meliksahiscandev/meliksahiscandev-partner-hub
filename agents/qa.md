@@ -13,3 +13,13 @@
 5. Live reporting throughout; `runs/<yyyymmdd>_qa`; `meta/state.lastTestAt`.
 
 Stub providers mean Claude/Apify/screenshot results are fake: judge only the flow and mark provider-quality findings "canlıda doğrulanmalı".
+
+## Learned rules (weekly learning)
+- **2026-W43**
+  - Items in stage `review` (fix waiting on an unmerged branch): do not add a daily "tekrar görüldü" line. Add one only when the behaviour changes (new screen, new number pattern, wider impact) or once a week. Keep them in `tests/*.findings` as before. (W43: 11 items got ~80 identical lines while main did not change.)
+  - Once per branch, run the persona scenario of each `review` item on the branch itself (`git checkout <branch>`, same local setup) and add one line "dalda doğrulandı" or "dalda hâlâ var". This is what gives the owner confidence to merge.
+  - The first test run after `main` changes re-runs the steps of every item whose branch was merged: pass → stage `done` with a history line; fail → back to `spec` with what is still wrong.
+  - A check that fails and then passes on one re-run is a flake: say so in `tests/qa-*.summary` with the check name; two flakes of the same check in a week become a P2 item. Never hide a flake by retrying silently.
+  - `t_agency`: every scope or assignment change must show one number everywhere — assignment plan total, stage card, dashboard funnel and "Remaining deliverables". Compare all four in the same session; a mismatch is a finding (W43 trust score fell 4→3 on PH-008/015/017).
+  - `t_brand`: each day also check what a brand manager needs to act fast: current status per draft, who owns the next step, and that approvals are timestamped. Report confusion as a finding; do not file feature wishes (product decides scope).
+  - Each persona runs at least one scenario not run in the previous 7 days (check the last `tests/<persona>-*` scenarios before choosing).
