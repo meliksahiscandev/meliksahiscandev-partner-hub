@@ -411,6 +411,9 @@ button.tag:hover{border-color:color-mix(in srgb,var(--primary) 45%,var(--line-2)
 .dash-proj{display:flex;flex-wrap:wrap;gap:4px;min-width:140px;max-width:280px}
 .dash-proj .tag{cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dash-proj .tag.out{opacity:.5}
+#dash-scope{width:auto;min-width:min(220px,100%);max-width:100%;text-overflow:ellipsis}
+.page-head>.row{min-width:0;max-width:100%}
+@media (max-width:560px){#dash-scope{flex:1 1 100%;width:100%}.dash-proj{max-width:200px}}
 .lnk{border:0;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
 .lnk:hover strong,.lnk:focus-visible strong{color:var(--primary-2);text-decoration:underline;text-underline-offset:3px}
 /* Tables marked .stk become one card per row on phones: the first cell spans the card, the rest show their column name. */

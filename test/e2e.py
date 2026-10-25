@@ -564,6 +564,14 @@ def main():
             sw = page.evaluate('() => document.documentElement.scrollWidth')
             check(sw <= 392, 'no horizontal page scroll at phone width (scrollWidth %d)' % sw)
             shot('20_mobile')
+            LONG = 'Yaz Işıltısı — Güneş Koruyucu Şampuan Lansmanı ve Çok Uzun Türkçe Kampanya Adı'
+            page.evaluate('async ([id, n]) => { await (await window.claude.use("db")).collection("projects").doc(id).update({ name: n }); }', [PRID, LONG]); page.wait_for_timeout(400)
+            wide = []
+            for h in ['#dashboards', '#d.p-' + PID, '#d.j-' + PRID]:
+                nav(h); page.wait_for_timeout(400); sw = page.evaluate('() => document.documentElement.scrollWidth')
+                if sw > 392: wide.append((h, sw))
+            check(not wide, 'dashboards with a long Turkish project name: no horizontal scroll at phone width %s' % wide)
+            shot('20b_dash_mobile_long_name')
             page.set_viewport_size({'width': 1360, 'height': 900})
             page.emulate_media(color_scheme='dark'); nav('#home'); page.wait_for_timeout(400); shot('21_dark')
         except Exception as e:
