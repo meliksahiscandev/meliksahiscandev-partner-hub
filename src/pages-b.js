@@ -55,9 +55,8 @@ function ProjectSummary({ pr, p }) {
   </div></section>`;
 }
 function StageTracker({ m }) {
-  const cur = m.stages[m.currentIdx];
   return html`<section className="tracker" aria-label="Project progress">
-    <div className="tr-sum"><div className="eyebrow">Overall progress</div><div className="tr-big">${Math.round(m.overall * 100)}<small>%</small></div><div className=${'bar' + (m.overall >= 1 ? ' ok' : '')}><i style=${{ width: (m.overall * 100) + '%' }}></i></div><div className="small t2">${m.overall >= 1 ? 'All five stages complete' : 'Stage ' + (m.currentIdx + 1) + ' of 5 · ' + cur.label}</div></div>
+    <div className="tr-sum"><div className="eyebrow">Overall progress</div><div className="tr-big">${Math.round(m.overall * 100)}<small>%</small></div><div className=${'bar' + (m.overall >= 1 ? ' ok' : '')}><i style=${{ width: (m.overall * 100) + '%' }}></i></div><div className="small t2" id="stage-line">${stageText(m)}</div></div>
     <ol className="stepper">${m.stages.map((st, i) => html`<li key=${st.key} className=${'stp' + (st.pct >= 1 ? ' done' : '') + (i === m.currentIdx && m.overall < 1 ? ' cur' : '')} aria-current=${i === m.currentIdx ? 'step' : undefined}>
       <span className="stp-c">${st.pct >= 1 ? html`<${Icon} n="check" s=${12}/>` : i + 1}</span><span className="stp-l">${st.label}</span><span className="stp-p">${Math.round(st.pct * 100)}%</span><div className=${'bar' + (st.pct >= 1 ? ' ok' : '')}><i style=${{ width: (st.pct * 100) + '%' }}></i></div><span className="stp-d">${st.detail}</span></li>`)}</ol>
   </section>`;
@@ -67,9 +66,9 @@ function DeliverableTracker({ m, pr, fin }) {
   if (fin) { const cur = fin.currency || 'TRY'; const t = finTotals(fin); const rs = t.rows.filter(r => r.projectId === pr.id); finLine = html`<span className="row nw t3 small"><${Icon} n="lock" s=${13}/>Budget ${fmtMoney((fin.budgets || {})[pr.id], cur)} · invoiced ${fmtMoney(rs.filter(r => r.status !== 'planned').reduce((a, r) => a + (+r.net || 0), 0), cur)} · collected ${fmtMoney(rs.filter(r => r.status === 'collected').reduce((a, r) => a + t.gross(r), 0), cur)}</span>`; }
   const color = n => ({ color: n > 0 ? 'var(--warn)' : 'var(--ok)', fontWeight: 600 });
   return html`<${Card} title="Remaining deliverables" sub=${m.delivered + ' delivered · ' + m.remaining + ' remaining' + (m.totalQty ? ' of ' + m.totalQty : '')} actions=${finLine} flush=${true}>
-    ${m.targets.length || m.creators.length ? html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Deliverable</th><th className="r">Target</th><th className="r">Assigned</th><th className="r">In review</th><th className="r">Preview approved</th><th className="r">Delivered</th><th className="r">Remaining</th></tr></thead><tbody>
-      ${m.targets.map(t => html`<tr key=${t.key}><td><span className="row nw" style=${{ gap: '6px' }}><${Plat} p=${t.platform} t=${t.type}/>${t.extra ? html`<${Badge} cls="warn">not in scope<//>` : null}</span></td><td className="r num">${t.qty || '—'}</td><td className="r num">${t.assigned}</td><td className="r num">${t.submitted}</td><td className="r num">${t.approved}</td><td className="r num"><strong>${t.live}</strong></td><td className="r num">${t.qty ? html`<span style=${color(t.qty - t.live)}>${Math.max(0, t.qty - t.live)}</span>` : '—'}</td></tr>`)}
-      ${m.creators.map(c => html`<tr key=${'c' + c.tier}><td><span className="tag">${TIERS[c.tier].label}</span></td><td className="r num">${c.count}</td><td className="r num">${c.listed} <span className="t3 xs">listed</span></td><td className="r num">—</td><td className="r num">${c.approved} <span className="t3 xs">approved</span></td><td className="r num">—</td><td className="r num"><span style=${color(c.count - c.approved)}>${Math.max(0, c.count - c.approved)}</span></td></tr>`)}
+    ${m.targets.length || m.creators.length ? html`<div className="tbl-wrap"><table className="tbl stk" id="deliv-table"><thead><tr><th>Deliverable</th><th className="r">Target</th><th className="r">Assigned</th><th className="r">In review</th><th className="r">Preview approved</th><th className="r">Delivered</th><th className="r">Remaining</th></tr></thead><tbody>
+      ${m.targets.map(t => html`<tr key=${t.key}><td className="full"><span className="row nw" style=${{ gap: '6px' }}><${Plat} p=${t.platform} t=${t.type}/>${t.extra ? html`<${Badge} cls="warn">not in scope<//>` : null}</span></td><td className="r num" data-label="Target">${t.qty || '—'}</td><td className="r num" data-label="Assigned">${t.assigned}</td><td className="r num" data-label="In review">${t.submitted}</td><td className="r num" data-label="Preview approved">${t.approved}</td><td className="r num" data-label="Delivered"><strong>${t.live}</strong></td><td className="r num" data-label="Remaining">${t.qty ? html`<span style=${color(t.qty - t.live)}>${Math.max(0, t.qty - t.live)}</span>` : '—'}</td></tr>`)}
+      ${m.creators.map(c => html`<tr key=${'c' + c.tier}><td className="full"><span className="tag">${TIERS[c.tier].label}</span></td><td className="r num" data-label="Target">${c.count}</td><td className="r num" data-label="Listed">${c.listed} <span className="t3 xs">listed</span></td><td className="r num ph-hide">—</td><td className="r num" data-label="Approved">${c.approved} <span className="t3 xs">approved</span></td><td className="r num ph-hide">—</td><td className="r num" data-label="Remaining"><span style=${color(c.count - c.approved)}>${Math.max(0, c.count - c.approved)}</span></td></tr>`)}
     </tbody></table></div>` : html`<p className="t3" style=${{ padding: '14px 16px' }}>No deliverables defined. Use Edit scope to add content and creators.</p>`}
   <//>`;
 }
@@ -133,14 +132,14 @@ function MasterfileTab({ pr, p, infs, m }) {
       ${role.asCustomer && !canAct ? html`<p className="t3 small">You have view-only access to this account.</p>` : null}
       ${role.preview ? html`<p className="t3 small">Customer preview: actions here are recorded as "Agency for customer".</p>` : null}
     </div></div>
-    ${rows.length ? html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>#</th><th>Influencer</th><th>Instagram</th><th>TikTok</th><th>Tier</th><th>Status</th><th className="r">Actions</th></tr></thead><tbody>
+    ${rows.length ? html`<div className="tbl-wrap"><table className="tbl stk" id="mf-table"><thead><tr><th>#</th><th>Influencer</th><th>Instagram</th><th>TikTok</th><th>Tier</th><th>Status</th><th className="r">Actions</th></tr></thead><tbody>
       ${rows.map((i, idx) => { const st = infState(i); const cms = cmtList(i.comments); const oc = openChanges(i.comments).length; const isOpen = open[i.id] || commenting === i.id;
         const platCell = k => { const x = i.platforms && i.platforms[k]; return x && x.enabled ? html`<div className="cs"><span className="handle">@${x.handle}</span><span className="stat row nw" style=${{ gap: '4px' }}>${fmtK(x.followers)} followers · ER ${fmtPct(x.er)}${role.inAgency ? statTag(x, 'er') : null}</span></div>` : html`<span className="t3">—</span>`; };
-        return html`<${Fragment} key=${i.id}><tr className=${isOpen ? 'sel' : ''}>
-          <td className="idx">${idx + 1}</td><td><div className="cs"><strong>${i.name}</strong>${cms.length ? html`<button className="btn btn-ghost btn-sm" style=${{ alignSelf: 'flex-start', height: '22px', padding: '0 6px' }} onClick=${() => setOpen(o => Object.assign({}, o, { [i.id]: !o[i.id] }))}><${Icon} n="comment" s=${12}/>${plural(cms.length, 'comment')}${oc ? ' · ' + oc + ' open' : ''}</button>` : null}</div></td>
-          <td>${platCell('instagram')}</td><td>${platCell('tiktok')}</td>
-          <td>${i.tier && TIERS[i.tier] ? html`<span className="tag">${TIERS[i.tier].short}</span>` : '—'}</td><td><${Badge} cls=${st.cls}>${st.label}<//></td>
-          <td className="r"><div className="row" style=${{ justifyContent: 'flex-end', gap: '4px' }}>
+        return html`<${Fragment} key=${i.id}><tr id=${'inf-row-' + i.id} className=${isOpen ? 'sel' : ''}>
+          <td className="idx">${idx + 1}</td><td className="full"><div className="cs"><strong>${i.name}</strong>${cms.length ? html`<button className="btn btn-ghost btn-sm" style=${{ alignSelf: 'flex-start', height: '22px', padding: '0 6px' }} onClick=${() => setOpen(o => Object.assign({}, o, { [i.id]: !o[i.id] }))}><${Icon} n="comment" s=${12}/>${plural(cms.length, 'comment')}${oc ? ' · ' + oc + ' open' : ''}</button>` : null}</div></td>
+          <td data-label="Instagram">${platCell('instagram')}</td><td data-label="TikTok">${platCell('tiktok')}</td>
+          <td data-label="Tier">${i.tier && TIERS[i.tier] ? html`<div className="cs"><span className="tag" style=${{ alignSelf: 'flex-start' }}>${TIERS[i.tier].short}</span>${role.inAgency && !role.asCustomer && tierClash(i.tier, maxFollowers(i.platforms)) ? html`<span className="tier-clash"><${Badge} cls="warn">Type doesn't match followers<//></span>` : null}</div>` : '—'}</td><td data-label="Status"><${Badge} cls=${st.cls}>${st.label}<//></td>
+          <td className="r full acts"><div className="row" style=${{ justifyContent: 'flex-end', gap: '4px' }}>
             ${role.asCustomer && canAct && inReview && i.state !== 'draft' ? html`<${Fragment}>${i.state !== 'approved' ? html`<button className="btn btn-sm btn-ok" onClick=${() => approveRow(i)}><${Icon} n="check" s=${13}/>Approve</button>` : null}<button className="btn btn-sm" onClick=${() => setCommenting(commenting === i.id ? null : i.id)}><${Icon} n="comment" s=${13}/>Comment</button><//>` : null}
             ${role.canAgency && !approved ? html`<${Fragment}>${cms.length || i.state === 'commented' ? html`<button className="btn btn-sm" onClick=${() => setCommenting(commenting === i.id ? null : i.id)}>Reply</button>` : null}<button className="icon-btn" aria-label=${'Edit ' + i.name} onClick=${() => openModal('influencer', { pr, inf: i })}><${Icon} n="edit"/></button><button className="icon-btn" aria-label=${'Remove ' + i.name} onClick=${() => openModal('confirm', { title: 'Remove ' + i.name + '?', body: 'The creator leaves the masterfile. Add a replacement and resubmit. Removed creators can be restored below the table.', danger: true, confirmLabel: 'Remove', onConfirm: async () => { await dbx.update('influencers', i.id, { removed: true, removedAt: nowIso(), removedBy: store.me.id || null }); logEvent('influencer.remove', Object.assign({ ref: i.id, refName: i.name, text: 'Removed creator ' + i.name + ' from the masterfile' }, ctx)); } })}><${Icon} n="trash"/></button><//>` : null}
           </div></td></tr>
@@ -256,7 +255,8 @@ function parseImportRows(table, existing) {
     keys.forEach(k => seen.add(k));
     const maxF = Math.max(0, ...Object.values(plats).map(x => x.followers || 0));
     const tier = parseTier(v.tier) || (maxF ? (maxF < 10000 ? 'nano' : 'micro') : '');
-    out.push({ row: r + 1, name, plats, tier, tierGiven: !!parseTier(v.tier), status, why, notes });
+    const tierGiven = !!parseTier(v.tier);
+    out.push({ row: r + 1, name, plats, tier, tierGiven, clash: tierGiven && tierClash(tier, maxF), status, why, notes });
   }
   return { rows: out, mapped: head.filter(Boolean) };
 }
@@ -320,7 +320,7 @@ function ImportInfluencersModal({ pr, p }) {
     ${parsed ? html`<${Fragment}>
       <div className="row small"><${Badge} cls="ok">${ok.length} to import<//>${parsed.rows.length - ok.length ? html`<${Badge} cls="warn">${parsed.rows.length - ok.length} skipped<//>` : null}<span className="t3">${existing.length ? existing.length + ' creators already in this masterfile' : ''}</span></div>
       <div className="tbl-wrap" style=${{ maxHeight: '320px', overflowY: 'auto' }}><table className="tbl" id="imp-table"><thead><tr><th>Row</th><th>Influencer</th><th>Instagram</th><th>TikTok</th><th>Type</th><th>Status</th></tr></thead><tbody>
-        ${parsed.rows.map(r => html`<tr key=${r.row}><td className="idx">${r.row}</td><td><strong>${r.name || '—'}</strong></td><td>${platCell(r.plats.instagram)}</td><td>${platCell(r.plats.tiktok)}</td><td>${r.tier ? html`<span className="tag">${TIERS[r.tier].short}</span>` : html`<span className="t3 xs">after fetch</span>`}</td><td>${r.status === 'ok' ? html`<${Badge} cls="ok">Ready<//>` : html`<${Badge} cls="warn">${r.why}<//>`}${r.notes.length ? html`<div className="t3 xs">${r.notes.join('; ')}</div>` : null}</td></tr>`)}
+        ${parsed.rows.map(r => html`<tr key=${r.row}><td className="idx">${r.row}</td><td><strong>${r.name || '—'}</strong></td><td>${platCell(r.plats.instagram)}</td><td>${platCell(r.plats.tiktok)}</td><td>${r.tier ? html`<div className="cs"><span className="tag" style=${{ alignSelf: 'flex-start' }}>${TIERS[r.tier].short}</span>${r.clash ? html`<span className="tier-clash"><${Badge} cls="warn">Type doesn't match followers<//></span>` : null}</div>` : html`<span className="t3 xs">after fetch</span>`}</td><td>${r.status === 'ok' ? html`<${Badge} cls="ok">Ready<//>` : html`<${Badge} cls="warn">${r.why}<//>`}${r.notes.length ? html`<div className="t3 xs">${r.notes.join('; ')}</div>` : null}</td></tr>`)}
       </tbody></table></div>
       ${socialOn() ? html`<label className="row nw" style=${{ gap: '8px', cursor: 'pointer' }}><input type="checkbox" id="imp-fetch" checked=${fetchAfter} onChange=${e => setFetchAfter(e.target.checked)}/><span className="small">Fetch followers and ER for the imported creators right after the import (one by one; numbers in the file are kept)</span></label>` : null}
       <p className="t3 xs">Imported creators are added as drafts. Check them, then Submit for review. The file itself is kept in ${pr.name} / ${FOLDERS.imports}.</p>
@@ -330,7 +330,8 @@ function ImportInfluencersModal({ pr, p }) {
 const socialOn = () => !!(CAP.hosted && store.features && store.features.apify);
 const shotsOn = () => !!(CAP.hosted && store.features && store.features.screenshots);
 function InfluencerModal({ pr, inf }) {
-  const { closeModal } = useCtx();
+  const { s, closeModal } = useCtx();
+  const [dup, setDup] = useState(null);
   const blank = { enabled: false, handle: '', followers: '', er: '', fSource: '', erSource: '', fetched: null };
   const init = k => { const x = inf && inf.platforms && inf.platforms[k]; return x ? { enabled: !!x.enabled, handle: x.handle || '', followers: isNum(x.followers) ? String(x.followers) : '', er: isNum(x.er) ? String(x.er) : '', fSource: x.fSource || (isNum(x.followers) ? 'manual' : ''), erSource: x.erSource || (isNum(x.er) ? 'manual' : ''), fetched: x.fetched || null } : Object.assign({}, blank); };
   const [name, setName] = useState(inf ? inf.name : '');
@@ -340,7 +341,7 @@ function InfluencerModal({ pr, inf }) {
   const [busy, setBusy] = useState(false);
   const [fetching, setFetching] = useState({});
   const social = socialOn();
-  const setP = (k, f, v) => setPl(x => Object.assign({}, x, { [k]: Object.assign({}, x[k], { [f]: v }, f === 'followers' ? { fSource: v.trim() ? 'manual' : '' } : f === 'er' ? { erSource: v.trim() ? 'manual' : '' } : {}) }));
+  const setP = (k, f, v) => { if (f === 'handle' || f === 'enabled') setDup(null); setPl(x => Object.assign({}, x, { [k]: Object.assign({}, x[k], { [f]: v }, f === 'followers' ? { fSource: v.trim() ? 'manual' : '' } : f === 'er' ? { erSource: v.trim() ? 'manual' : '' } : {}) })); };
   const useFetched = k => setPl(x => { const c = x[k], f = c.fetched || {}; return Object.assign({}, x, { [k]: Object.assign({}, c, isNum(f.followers) ? { followers: String(f.followers), fSource: 'apify' } : {}, isNum(f.er) ? { er: String(f.er), erSource: 'apify' } : {}) }); });
   const fetchOne = async k => {
     const h = cleanHandle(pl[k].handle, k); if (!h) return toast('Enter the ' + PLATFORMS[k].label + ' username first.', 'warn');
@@ -368,6 +369,10 @@ function InfluencerModal({ pr, inf }) {
     if (!en.length) return toast('Select at least one platform.', 'warn');
     for (const k of en) { if (!cleanHandle(pl[k].handle, k)) return toast('Enter the ' + PLATFORMS[k].label + ' username.', 'warn'); if (pl[k].followers.trim() && parseNum(pl[k].followers) === null) return toast('Followers on ' + PLATFORMS[k].label + ' is not a number.', 'warn'); if (pl[k].er.trim() && parseNum(pl[k].er) === null) return toast('Engagement rate on ' + PLATFORMS[k].label + ' is not a number.', 'warn'); }
     if (!effTier) return toast('Choose nano or micro.', 'warn');
+    const mine = new Set(handleKeys(Object.fromEntries(en.map(k => [k, { handle: pl[k].handle }]))));
+    const other = infsOf(s, pr.id).find(i => (!inf || i.id !== inf.id) && handleKeys(i.platforms).some(k => mine.has(k)));
+    setDup(other || null);
+    if (other) return;
     const platforms = {}; Object.keys(PLATFORMS).forEach(k => { const x = pl[k]; const f = x.enabled ? parseNum(x.followers) : null, e = x.enabled ? parseNum(x.er) : null; platforms[k] = { enabled: !!x.enabled, handle: x.enabled ? cleanHandle(x.handle, k) : '', followers: f, er: e, fSource: f === null ? null : (x.fSource || 'manual'), erSource: e === null ? null : (x.erSource || 'manual'), fetched: x.enabled ? x.fetched || null : null }; });
     setBusy(true);
     let ok;
@@ -387,6 +392,7 @@ function InfluencerModal({ pr, inf }) {
     return html`<div className="row small" style=${{ gap: '8px' }}><span className="t3">Fetched ${fmtAgo(f.at)}: <span className="num">${fmtInt(f.followers)}</span> followers · ER <span className="num">${fmtPct(f.er)}</span>${f.sample ? ' from the last ' + f.sample + ' posts' : ''}</span>${differs ? html`<button type="button" className="btn btn-sm btn-ghost" onClick=${() => useFetched(k)}>Use fetched values</button>` : null}</div>`;
   };
   return html`<${Modal} title=${inf ? 'Edit influencer' : 'Add influencer'} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${busy} onClick=${save}>${inf ? 'Save' : 'Add to masterfile'}</button><//>`}>
+    ${dup ? html`<div className="banner crit" id="inf-dup"><div className="b-body small">This account is already in the masterfile: <strong>${dup.name}</strong>. <button type="button" className="btn btn-sm btn-ghost" onClick=${() => { const id = dup.id; closeModal(); setTimeout(() => { const el = document.getElementById('inf-row-' + id); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('sel'); } }, 50); }}>Show ${dup.name}</button></div></div>` : null}
     ${inf && inf.state === 'approved' ? html`<div className="banner warn"><div className="b-body small">This creator is approved. Saving changes sends them back to the customer for approval.</div></div>` : null}
     <label className="field"><span>Influencer name</span><input className="input" id="inf-name" value=${name} onChange=${e => setName(e.target.value)} placeholder="Full name"/></label>
     <div className="field"><span>Platforms</span><div className="opt-list">${Object.keys(PLATFORMS).map(k => html`<button key=${k} type="button" className="opt" aria-pressed=${pl[k].enabled} onClick=${() => setP(k, 'enabled', !pl[k].enabled)}>${pl[k].enabled ? html`<${Icon} n="check" s=${13}/>` : null}${PLATFORMS[k].label}</button>`)}</div></div>
@@ -444,7 +450,7 @@ function MatchTab({ pr, infs, m }) {
             <input className="input sm num" style=${{ width: '58px', textAlign: 'right' }} type="number" min="1" max="50" aria-label=${'Quantity for ' + i.name} value=${qty[i.id] || '1'} onChange=${e => setQty(x => Object.assign({}, x, { [i.id]: e.target.value }))}/>
             <button className="btn btn-sm btn-primary" disabled=${!pick[i.id]} onClick=${() => assign(i)}>Assign</button></div>${!opts.length ? html`<div className="t3 xs">No scoped content on this creator's platforms</div>` : null}</td>` : null}
         </tr>`; }) : html`<tr><td colSpan=${cols.length + (role.canAgency ? 3 : 2)} className="t3" style=${{ padding: '20px 12px' }}>No approved creators.</td></tr>`}
-        ${rows.length ? html`<tr><td className="t3 small">Assigned / target</td>${cols.map(c => { const t = m.targets.find(x => x.key === c.key); const n = t ? t.assigned : 0; return html`<td key=${c.key} className="r num small"><span style=${{ color: c.qty && n < c.qty ? 'var(--warn)' : c.qty && n > c.qty ? 'var(--crit)' : 'var(--ok)', fontWeight: 600 }}>${n}</span> / ${c.qty || '—'}</td>`; })}<td className="r num small"><strong>${m.asgTotal}</strong> / ${m.totalQty || '—'}</td>${role.canAgency ? html`<td></td>` : null}</tr>` : null}
+        ${rows.length ? html`<tr><td className="t3 small">Assigned / target</td>${cols.map(c => { const t = m.targets.find(x => x.key === c.key); const n = t ? t.assigned : 0; return html`<td key=${c.key} className="r num small"><span style=${{ color: c.qty && n < c.qty ? 'var(--warn)' : c.qty && n > c.qty ? 'var(--crit)' : 'var(--ok)', fontWeight: 600 }}>${n}</span> / ${c.qty || '—'}</td>`; })}<td className="r num small" id="asg-total"><strong>${m.asgCapped}</strong> / ${m.totalQty || '—'}${m.asgOver > 0 ? html`<div className="xs" style=${{ color: 'var(--crit)', fontWeight: 600 }}>+${m.asgOver} over target</div>` : null}</td>${role.canAgency ? html`<td></td>` : null}</tr>` : null}
       </tbody></table></div>
     <//>
   </div>`;
@@ -474,12 +480,12 @@ function ReviewTab({ pr, infs }) {
   const filters = [['all', 'All'], ['submitted', 'Awaiting customer'], ['changes', 'Changes requested'], ['none', 'Not submitted'], ['approved', 'Approved']];
   return html`<div className="stack">
     <div className="seg" role="group" aria-label="Filter">${filters.map(([k, l]) => html`<button key=${k} aria-pressed=${filter === k} onClick=${() => setFilter(k)}>${l} <span className="mono t3">${counts[k]}</span></button>`)}</div>
-    <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Influencer</th><th>Deliverable</th><th>Status</th><th>Preview</th><th className="r">Actions</th></tr></thead><tbody>
+    <div className="tbl-wrap"><table className="tbl stk" id="review-table"><thead><tr><th>Influencer</th><th>Deliverable</th><th>Status</th><th>Preview</th><th className="r">Actions</th></tr></thead><tbody>
       ${shown.map(({ i, a, rs }) => { const rv = a.review || {}; const vers = cmtList(rv.versions); const curV = (rv.versions || {})[rv.current]; const url = curV && safeUrl(curV.url); const cms = cmtList(rv.comments); const isOpen = openId === a.id || commenting === a.id; return html`<${Fragment} key=${a.id}><tr className=${isOpen ? 'sel' : ''}>
-        <td><strong>${i.name}</strong><div className="stat">@${(i.platforms[a.platform] || {}).handle || ''}</div></td><td><${Plat} p=${a.platform} t=${a.type}/></td>
-        <td><div className="cs"><${Badge} cls=${rs.cls}>${rs.label}<//>${cms.length ? html`<button className="btn btn-ghost btn-sm" style=${{ alignSelf: 'flex-start', height: '22px', padding: '0 6px' }} onClick=${() => setOpenId(openId === a.id ? null : a.id)}><${Icon} n="comment" s=${12}/>${cms.length}${openChanges(rv.comments).length ? ' · ' + openChanges(rv.comments).length + ' open' : ''}</button>` : null}</div></td>
-        <td>${url ? html`<div className="cs"><a href=${url} target="_blank" rel="noopener noreferrer" className="row nw" style=${{ gap: '4px' }}><${Icon} n="ext" s=${13}/>Open preview</a><span className="stat">v${vers.length} · ${fmtWhen(curV.at)}</span>${curV.note ? html`<span className="t3 xs">${curV.note}</span>` : null}</div>` : html`<span className="t3">—</span>`}</td>
-        <td className="r"><div className="row" style=${{ justifyContent: 'flex-end', gap: '4px' }}>
+        <td className="full"><strong>${i.name}</strong><div className="stat">@${(i.platforms[a.platform] || {}).handle || ''}</div></td><td data-label="Deliverable"><${Plat} p=${a.platform} t=${a.type}/></td>
+        <td data-label="Status"><div className="cs"><${Badge} cls=${rs.cls}>${rs.label}<//>${cms.length ? html`<button className="btn btn-ghost btn-sm" style=${{ alignSelf: 'flex-start', height: '22px', padding: '0 6px' }} onClick=${() => setOpenId(openId === a.id ? null : a.id)}><${Icon} n="comment" s=${12}/>${cms.length}${openChanges(rv.comments).length ? ' · ' + openChanges(rv.comments).length + ' open' : ''}</button>` : null}</div></td>
+        <td className="full" data-label="Preview">${url ? html`<div className="cs"><a href=${url} target="_blank" rel="noopener noreferrer" className="row nw" style=${{ gap: '4px' }}><${Icon} n="ext" s=${13}/>Open preview</a><span className="stat">v${vers.length} · ${fmtWhen(curV.at)}</span>${curV.note ? html`<span className="t3 xs">${curV.note}</span>` : null}</div>` : html`<span className="t3">—</span>`}</td>
+        <td className="r full acts"><div className="row" style=${{ justifyContent: 'flex-end', gap: '4px' }}>
           ${role.canAgency && rs.key !== 'approved' ? html`<button className=${'btn btn-sm' + (rs.key === 'none' || rs.key === 'changes' ? ' btn-primary' : '')} onClick=${() => openModal('preview', { inf: i, a, pr })}>${rs.key === 'none' ? 'Submit preview' : rs.key === 'changes' ? 'Submit revision' : 'Replace link'}</button>` : null}
           ${role.asCustomer && canAct && rs.key === 'submitted' ? html`<${Fragment}><button className="btn btn-sm btn-ok" onClick=${() => approve(i, a)}><${Icon} n="check" s=${13}/>Approve</button><button className="btn btn-sm" onClick=${() => setCommenting(commenting === a.id ? null : a.id)}><${Icon} n="comment" s=${13}/>Comment</button><//>` : null}
           ${role.canAgency && cms.length ? html`<button className="btn btn-sm btn-ghost" onClick=${() => setCommenting(commenting === a.id ? null : a.id)}>Reply</button>` : null}
@@ -611,7 +617,7 @@ function PerformanceTab({ pr, p, infs }) {
     setPulling('');
     const got = Object.values(byInf).reduce((t, u) => t + Object.keys(u).length, 0);
     if (ok !== false) {
-      logEvent('perf.public_refresh', { pid: p.id, prid: pr.id, refName: pr.name, text: 'Refreshed public metrics for ' + plural(got, 'piece') + (errs.length ? ' (' + errs.length + ' failed)' : ''), meta: { updated: got, failed: errs.length } });
+      logEvent('perf.public_refresh', { pid: p.id, prid: pr.id, refName: pr.name, scope: 'agency', text: 'Refreshed public metrics for ' + plural(got, 'piece') + (errs.length ? ' (' + errs.length + ' failed)' : ''), meta: { updated: got, failed: errs.length } });
       toast(got ? 'Public metrics updated for ' + plural(got, 'piece') + (errs.length ? '. Failed: ' + errs.slice(0, 2).join('; ') : '') : 'No public numbers could be read. ' + errs.slice(0, 2).join('; '), errs.length ? 'warn' : 'ok');
     }
   };

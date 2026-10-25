@@ -224,6 +224,19 @@ def main():
             check(byname['Elif Yilmaz'][1]['platforms']['instagram']['handle'] == 'elif.yilmaz', 'profile URL cleaned to handle')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['followers'] == 48200 and byname['Mert Kaya'][1]['tier'] == 'micro', 'Turkish "48,2B" parsed as 48,200 and tier suggested micro')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['er'] == 3.4, 'decimal comma ER parsed')
+            # The same account cannot be entered twice in one masterfile (also when editing another row).
+            page.locator('button[aria-label="Edit Zeynep Ak"]').click(); page.fill('#inf-h-instagram', 'https://www.instagram.com/MertKaya/'); btn('Save').click()
+            page.wait_for_selector('#inf-dup')
+            check('Mert Kaya' in page.locator('#inf-dup').inner_text(), 'editing a row to an account already listed is refused with its name')
+            page.locator('.modal button:has-text("Cancel")').click(); page.wait_for_selector('.modal', state='detached')
+            check(docs('influencers')[byname['Zeynep Ak'][0]]['platforms']['instagram']['handle'] == 'zeynepak' and len(docs('influencers')) == 3, 'refused edit not stored')
+            # A type that contradicts the follower count is flagged for the agency, and clears when fixed.
+            page.locator('button[aria-label="Edit Mert Kaya"]').click(); page.click('.modal .opt:has-text("Nanoinfluencer")'); btn('Save').click(); toast_wait('Influencer updated')
+            page.wait_for_selector('tr:has-text("Mert Kaya") .tier-clash')
+            check(page.locator('tr:has-text("Mert Kaya") .tier-clash').count() == 1 and page.locator('.tier-clash').count() == 1, '48.2K followers typed nano: warning on that row only')
+            page.locator('button[aria-label="Edit Mert Kaya"]').click(); page.click('.modal .opt:has-text("Microinfluencer")'); btn('Save').click(); toast_wait('Influencer updated')
+            page.wait_for_function('() => !document.querySelector(".tier-clash")', timeout=8000)
+            check(docs('influencers')[byname['Mert Kaya'][0]]['tier'] == 'micro', 'warning clears once the type matches')
             btn(re.compile('Submit for review')).click(); toast_wait('Masterfile submitted')
             check(all(v['state'] == 'pending' for v in docs('influencers').values()), 'all creators pending after submit')
 
@@ -395,6 +408,29 @@ def main():
             er = page.locator('.kpi:has-text("Engagement rate") .v').first.inner_text()
             check(er == '4.85%', 'weighted ER = (5400+210+80+150)*2 / 241000 = 4.85%% (got %s)' % er)
             shot('13_performance')
+            # Assignment totals and the stage line on a project that is ahead of its first open stage:
+            # Reels 4 target with 6 assigned, Story 0 of 2, TikTok 1 of 1, one Reels already posted with data.
+            page.evaluate('''([prid]) => { const d = window.__mockdb.get(); const pr = JSON.parse(JSON.stringify(d["projects/" + prid]));
+                pr.name = "Totals Check"; pr.content = [{ platform: "instagram", type: "reels", qty: 4 }, { platform: "instagram", type: "story", qty: 2 }, { platform: "tiktok", type: "post", qty: 1 }];
+                pr.creators = []; pr.masterfile = { created: true, status: "approved", round: 1, approvedAt: "2026-10-10T10:00:00.000Z" }; d["projects/tchk"] = pr;
+                const src = Object.entries(d).find(([k, v]) => k.startsWith("influencers/") && v.projectId === prid)[1];
+                const inf = JSON.parse(JSON.stringify(src)); inf.projectId = "tchk"; inf.state = "approved"; inf.name = "Totals Creator"; inf.assignments = {};
+                const at = n => "2026-10-1" + n + "T10:00:00.000Z";
+                for (let n = 0; n < 6; n++) inf.assignments["r" + n] = { platform: "instagram", type: "reels", createdAt: at(n) };
+                inf.assignments.r0.review = { status: "approved" }; inf.assignments.r0.publish = { status: "live" }; inf.assignments.r0.perf = { views: 1000, likes: 50 };
+                inf.assignments.t0 = { platform: "tiktok", type: "post", createdAt: at(7) };
+                d["influencers/tchk1"] = inf; window.__mockdb.set(d); }''', [PRID])
+            for who in ('owner', 'can'):
+                login(who); nav('#j.tchk.match'); page.wait_for_selector('#asg-total')
+                tot = page.locator('#asg-total').inner_text().replace('\n', ' ')
+                check(tot.startswith('5 / 7') and '+2 over target' in tot, '%s: assignment total counts at most the target per type: %s' % (who, tot))
+                check(page.locator('.stp:has-text("Content × Influencer match") .stp-d').inner_text() == '5 of 7 assigned', '%s: total matches the stage card (5 of 7 assigned)' % who)
+                check(page.locator('.capc.over:has-text("2 over target")').count() == 1, '%s: Reels card keeps its over-target warning' % who)
+                line = page.locator('#stage-line').inner_text()
+                check(line == 'Stage 5 of 5 · Performance data under way · still open: Content × Influencer match (5 of 7 assigned)', '%s: stage line shows the furthest stage under way and the open one: %s' % (who, line))
+                shot('13b_totals_' + who)
+            page.evaluate('() => { const d = window.__mockdb.get(); delete d["projects/tchk"]; delete d["influencers/tchk1"]; window.__mockdb.set(d); }')
+            login('owner')
             nav('#d.all'); page.wait_for_selector('h1:has-text("Dashboards")')
             check(page.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '3', 'dashboard: 3 unique influencers')
             check(page.locator('.kpi:has-text("Views") .v').first.inner_text() in ('241K', '241.0K'), 'dashboard: consolidated views match the project')

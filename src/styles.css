@@ -345,8 +345,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13px}
 .pop{display:flex;gap:6px;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--sunken);align-items:center}
 .codebox{font-family:var(--f-mono);font-size:18px;letter-spacing:.14em;padding:8px 12px;border:1px dashed color-mix(in srgb,var(--primary) 50%,var(--line-2));border-radius:8px;background:var(--primary-soft);color:var(--text);user-select:all}
 pre.inv{white-space:pre-wrap;font-family:var(--f-mono);font-size:12px;background:var(--sunken);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0;user-select:all}
-.toasts{position:fixed;z-index:200;bottom:calc(16px + env(safe-area-inset-bottom,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:8px;max-width:min(400px,calc(100vw - 32px))}
-.toast{position:relative;background:var(--raised);color:var(--text);border:1px solid var(--line-2);border-radius:12px;padding:11px 14px 11px 17px;font-size:13px;box-shadow:var(--shadow);overflow:hidden}
+/* Notices never take clicks: buttons underneath stay usable. */
+.toasts{position:fixed;z-index:200;pointer-events:none;bottom:calc(16px + env(safe-area-inset-bottom,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:8px;max-width:min(400px,calc(100vw - 32px))}
+.toast{position:relative;pointer-events:none;background:var(--raised);color:var(--text);border:1px solid var(--line-2);border-radius:12px;padding:11px 14px 11px 17px;font-size:13px;box-shadow:var(--shadow);overflow:hidden}
 .toast::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--signal-v)}
 .toast.crit{background:var(--crit-soft);color:var(--crit);border-color:color-mix(in srgb,var(--crit) 35%,transparent)}
 .toast.crit::before{background:var(--crit)}
@@ -412,4 +413,18 @@ button.tag:hover{border-color:color-mix(in srgb,var(--primary) 45%,var(--line-2)
 .dash-proj .tag.out{opacity:.5}
 .lnk{border:0;background:none;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
 .lnk:hover strong,.lnk:focus-visible strong{color:var(--primary-2);text-decoration:underline;text-underline-offset:3px}
+/* Tables marked .stk become one card per row on phones: the first cell spans the card, the rest show their column name. */
+@media (max-width:640px){
+  .tbl.stk thead{display:none}
+  .tbl.stk,.tbl.stk tbody{display:block;width:100%}
+  .tbl.stk tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 14px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .tbl.stk tbody tr:last-child{border-bottom:0}
+  .tbl.stk tbody tr.sel,.tbl.stk tbody tr.sub-row{background:var(--sunken)}
+  .tbl.stk td{display:block;padding:0;border:0;min-width:0;text-align:left}
+  .tbl.stk td,.tbl.stk tbody tr:hover td,.tbl.stk tr.sel td,.tbl.stk .sub-row td{background:transparent}
+  .tbl.stk td[data-label]::before{content:attr(data-label);display:block;font-size:11.5px;color:var(--text-3);margin-bottom:3px}
+  .tbl.stk td.full,.tbl.stk .sub-row td{grid-column:1/-1}
+  .tbl.stk td.idx,.tbl.stk td.ph-hide,.tbl.stk .sub-row td:first-child,.tbl.stk td.acts:not(:has(button,a)){display:none}
+  .tbl.stk td.acts>.row{justify-content:flex-start!important;flex-wrap:wrap}
+}
 .tbl tr.tot td{background:color-mix(in srgb,var(--primary) 7%,var(--sunken));border-top:1px solid var(--line-2)}
