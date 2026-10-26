@@ -28,6 +28,8 @@ const TIERS = {
 };
 const DOC_KIND = { debrief: 'Debrief', presentation: 'Supporting material', other: 'Supporting material', protocol: 'Project protocol', masterfile: 'Masterfile import', msa: 'Master agreement', screenshot: 'Screenshot', performance: 'Performance report', recovered: 'Recovered file' };
 const FOLDERS = { docs: 'Partnership Documents', protocol: 'Project Protocol', imports: 'Masterfile Imports', msa: 'Master Agreements', shots: 'Content Screenshots', perf: 'Performance Data', recovered: 'Recovered files' };
+// Working files that stay inside the agency: the raw creator list behind a masterfile import (it can carry fees and notes).
+const agencyOnlyFile = f => f.folder === FOLDERS.imports || f.kind === 'masterfile';
 const STAGES = [
   { key: 'masterfile', label: 'Masterfile alignment' },
   { key: 'match', label: 'Content × Influencer match' },
@@ -157,7 +159,9 @@ const subs = new Set();
 let emitQueued = false;
 function emit() { if (emitQueued) return; emitQueued = true; queueMicrotask(() => { emitQueued = false; subs.forEach(f => f()); }); }
 function useStore() { const [, set] = useState(0); useEffect(() => { const f = () => set(x => x + 1); subs.add(f); return () => subs.delete(f); }, []); return store; }
-function toast(msg, kind) { const id = rid(6); store.toasts = store.toasts.concat([{ id, msg, kind: kind || 'ok' }]); emit(); setTimeout(() => { store.toasts = store.toasts.filter(t => t.id !== id); emit(); }, kind === 'crit' ? 7000 : 3600); }
+// At most TOAST_MAX notices at once (oldest goes first); a repeated message replaces its earlier copy.
+const TOAST_MAX = 3;
+function toast(msg, kind) { const id = rid(6); store.toasts = store.toasts.filter(t => t.msg !== msg).concat([{ id, msg, kind: kind || 'ok' }]).slice(-TOAST_MAX); emit(); setTimeout(() => { store.toasts = store.toasts.filter(t => t.id !== id); emit(); }, kind === 'crit' ? 7000 : 3600); }
 function errText(e) {
   const map = {
     quota_exceeded: 'Workspace storage is full. Clear the trash or archive old projects and try again.',
@@ -320,6 +324,8 @@ function asgList(inf) { return Object.entries(inf.assignments || {}).map(([id, a
 function cmtList(obj) { return Object.entries(obj || {}).map(([id, c]) => Object.assign({ id }, c)).sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))); }
 const openChanges = obj => cmtList(obj).filter(c => c.kind === 'change' && !c.resolved);
 const filesOf = (s, pid) => s.files.filter(f => f.partnershipId === pid && f.status === 'active').sort(byCreated);
+// The files a role may list: customers (and the agency's customer preview) never see agency-only working files.
+const filesFor = (s, role) => role && role.asCustomer ? s.files.filter(f => !agencyOnlyFile(f)) : s.files;
 const enabledPlats = inf => Object.keys(PLATFORMS).filter(k => inf.platforms && inf.platforms[k] && inf.platforms[k].enabled);
 function perfOf(a) {
   const p = (a && a.perf) || {};
@@ -381,16 +387,37 @@ function projectMetrics(pr, infs) {
     { pct: ratio('live'), detail: of('live') + ' posted' },
     { pct: ratio('data'), detail: of('data') + ' with data' },
   ].map((x, i) => Object.assign({}, STAGES[i], x, { pct: Math.max(0, Math.min(1, x.pct || 0)) }));
-  const overall = stages.reduce((t, x) => t + x.pct, 0) / stages.length;
+  // Pieces outside the scope (a type no longer in scope, or above its target) are counted on their own; while any is still
+  // without performance data the project is not complete, so a scope edit can never turn open work into 100%.
+  const outsideOpen = totalQty <= 0 ? 0 : targets.concat(Object.values(extra)).reduce((t, x) => t + Math.min(Math.max(0, x.assigned - x.qty), x.assigned - x.data), 0);
+  const overall = Math.min(outsideOpen > 0 ? 0.99 : 1, stages.reduce((t, x) => t + x.pct, 0) / stages.length);
   const firstOpen = stages.findIndex(x => x.pct < 1);
+  let furthestIdx = -1; stages.forEach((x, i) => { if (x.pct > 0) furthestIdx = i; });
+  const asgCapped = totalQty > 0 ? capSum('assigned') : asgTotal;
   return {
     targets: targets.concat(Object.values(extra)), totalQty, creators, creatorTotal, stages, overall,
-    currentIdx: firstOpen === -1 ? 4 : firstOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
+    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, asgCapped, asgOver: asgTotal - asgCapped, outsideOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
     delivered: totalQty > 0 ? capSum('live') : asgLive, remaining: totalQty > 0 ? Math.max(0, totalQty - capSum('live')) : Math.max(0, asgTotal - asgLive),
     pendingRows: mf.status === 'in_review' ? infs.filter(i => i.state === 'pending').length : 0,
     changeRows: infs.filter(i => openChanges(i.comments).length > 0).length,
   };
 }
+
+// One line for "where is this project": the first open stage, plus the furthest stage already under way when work has moved ahead of it.
+function stageText(m, short) {
+  if (m.overall >= 1) return short ? 'Complete' : 'All five stages complete';
+  if (m.outsideOpen > 0 && m.stages.every(x => x.pct >= 1)) return short ? 'Scope complete · ' + m.outsideOpen + ' outside scope open' : 'Scope complete · ' + plural(m.outsideOpen, 'piece') + ' outside scope still open';
+  const cur = m.stages[m.currentIdx];
+  if (m.furthestIdx > m.currentIdx) {
+    const far = m.stages[m.furthestIdx];
+    return short ? (m.furthestIdx + 1) + ' · ' + far.label + ' under way · ' + cur.label + ' open' : 'Stage ' + (m.furthestIdx + 1) + ' of 5 · ' + far.label + ' under way · still open: ' + cur.label + ' (' + cur.detail + ')';
+  }
+  return short ? (m.currentIdx + 1) + ' · ' + cur.label : 'Stage ' + (m.currentIdx + 1) + ' of 5 · ' + cur.label;
+}
+const maxFollowers = plats => Math.max(0, ...Object.values(plats || {}).filter(x => x && x.enabled !== false).map(x => +x.followers || 0));
+// A tier contradicts the follower count when it falls in the other tier's range (nano 1K–10K, micro 10K–100K).
+const tierClash = (tier, followers) => !!followers && ((tier === 'nano' && followers >= 10000) || (tier === 'micro' && followers < 10000));
+const handleKeys = plats => Object.keys(PLATFORMS).filter(k => plats && plats[k] && plats[k].enabled !== false && plats[k].handle).map(k => k + ':' + cleanHandle(plats[k].handle, k).toLowerCase());
 
 /* ---------- audit log (append-only, day-sharded, with local outbox) ---------- */
 const outbox = lsGet('gm-audit-outbox', []).filter(e => e && e.id && e.at);
@@ -462,10 +489,18 @@ async function loadOlderAudit() {
   store.auditOlder = store.auditOlder.concat(add); emit();
   return add.length;
 }
+// Storage details of an event (hash, container, asset, file version) are agency-internal; worker.js strips the same keys for customers.
+const AGENCY_META = ['sha256', 'container', 'assetId', 'verified'];
+function eventMeta(e, agency) {
+  if (!e.meta || agency) return e.meta || null;
+  const m = Object.assign({}, e.meta); AGENCY_META.forEach(k => { delete m[k]; }); if (/^file\./.test(e.act)) delete m.version;
+  return Object.keys(m).length ? m : null;
+}
 function visibleEvents(s, role, filter) {
   filter = filter || {};
   return allEvents(s).filter(e => {
     if (role.isCustomer && (e.scope === 'agency' || !e.pid || !role.accounts[e.pid])) return false;
+    if (role.asCustomer && e.meta && agencyOnlyFile(e.meta)) return false;
     if (filter.pid && e.pid !== filter.pid) return false;
     if (filter.prid && e.prid !== filter.prid) return false;
     return true;
@@ -550,12 +585,12 @@ async function ingestFile(file, meta, onStep) {
     if (text) await dbx.set('filetext', id, { fileId: id, partnershipId: base.partnershipId, text: text.slice(0, 60000), createdAt: nowIso() });
     const done = { status: 'active', assetId: stored.assetId, container: stored.container, verified: ok, verifiedAt: nowIso(), textChars: text.length, indexedAt: nowIso() };
     await dbx.update('files', id, done);
-    logEvent('file.upload', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, text: 'Uploaded ' + name + ' to ' + folderPath(base) + (base.version > 1 ? ' (version ' + base.version + ')' : ''), meta: { folder: base.folder, size: base.size, sha256: sha, version: base.version, verified: ok, container: stored.container } });
+    logEvent('file.upload', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, scope: agencyOnlyFile(base) ? 'agency' : undefined, text: 'Uploaded ' + name + ' to ' + folderPath(base) + (base.version > 1 ? ' (version ' + base.version + ')' : ''), meta: { folder: base.folder, size: base.size, sha256: sha, version: base.version, verified: ok, container: stored.container } });
     step('Stored');
     return { file: Object.assign({ id }, base, done) };
   } catch (e) {
     try { await dbx.update('files', id, { status: 'failed', error: errText(e), failedAt: nowIso() }); } catch (x) { }
-    logEvent('file.upload_failed', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, text: 'Upload failed: ' + name + ' — ' + errText(e), meta: { sha256: sha } });
+    logEvent('file.upload_failed', { pid: base.partnershipId, prid: base.projectId, ref: id, refName: name, scope: agencyOnlyFile(base) ? 'agency' : undefined, text: 'Upload failed: ' + name + ' — ' + errText(e), meta: { sha256: sha } });
     throw e;
   }
 }

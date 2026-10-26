@@ -15,6 +15,8 @@ const PBKDF2_ITER = 100000;
 const SESSION_DAYS = 30;
 const enc = new TextEncoder();
 
+// Agency-internal working files (the raw creator list behind a masterfile import): never served to customers. Mirrors agencyOnlyFile in src/core.js.
+const agencyOnlyFile = f => !!f && (f.folder === 'Masterfile Imports' || f.kind === 'masterfile');
 const LAZY = new Set(['filetext']); // large collections fetched on demand, not pushed in sync
 function csp(host) {
   return ["default-src 'self'", "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -52,6 +54,13 @@ const upstreamMsg = (r, label) => { const b = r.body || {}; const e = b.error ||
 const rid = (n = 12) => { const a = 'abcdefghijklmnopqrstuvwxyz0123456789'; const r = crypto.getRandomValues(new Uint8Array(n)); let s = ''; for (const x of r) s += a[x % 36]; return s; };
 const nowIso = () => new Date().toISOString();
 const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+// Storage details of an audit event (hash, container, asset, file version) are agency-internal (same keys as eventMeta in core.js).
+const AGENCY_META = ['sha256', 'container', 'assetId', 'verified'];
+function customerEvent(e) {
+  if (!e.meta || typeof e.meta !== 'object') return e;
+  const m = Object.assign({}, e.meta); for (const k of AGENCY_META) delete m[k]; if (/^file\./.test(e.act || '')) delete m.version;
+  const c = Object.assign({}, e); if (Object.keys(m).length) c.meta = m; else delete c.meta; return c;
+}
 const normEmail = e => String(e || '').trim().toLowerCase();
 const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const onlyKeys = (obj, keys) => obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).every(k => keys.includes(k));
@@ -202,6 +211,10 @@ export class Workspace extends DurableObject {
     }
     if (acc.type !== 'customer') return undefined;
     const A = acc.accounts;
+    // Agency-internal working files, their text index and their upload events never reach customers.
+    if (col === 'files' && agencyOnlyFile(data)) return undefined;
+    if (col === 'filetext' && agencyOnlyFile((this.getDoc('files/' + (data.fileId || id)) || {}).data)) return undefined;
+    if (col === 'audit') data = Object.assign({}, data, { events: Object.fromEntries(Object.entries(data.events || {}).filter(([, e]) => !(e && agencyOnlyFile(e.meta)))) });
     if (col === 'partnerships') { if (!A[id]) return undefined; const c = clone(data); if (c.summary && c.summary.data) c.summary.data.budget = ''; return c; }
     if (col === 'influencers') {
       if (!A[data.partnershipId]) return undefined;
@@ -211,7 +224,7 @@ export class Workspace extends DurableObject {
       return c;
     }
     if (col === 'projects' || col === 'files' || col === 'filetext') return A[data.partnershipId] ? data : undefined;
-    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency') ev[k] = e; return Object.assign({}, data, { events: ev }); }
+    if (col === 'audit') { const ev = {}; for (const [k, e] of Object.entries(data.events || {})) if (e && e.pid && A[e.pid] && e.scope !== 'agency') ev[k] = customerEvent(e); return Object.assign({}, data, { events: ev }); }
     return undefined;
   }
   canWrite(acc, user, op, path, data, cur) {
@@ -564,7 +577,7 @@ export class Workspace extends DurableObject {
     const acc = this.access(user);
     if (acc.type !== 'agency') {
       const ref = this.q("SELECT data FROM docs WHERE col='files' AND deleted=0 AND json_extract(data,'$.assetId')=?", id);
-      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId]; })) return fail('not_found', 'No such file.', 404);
+      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId] && !agencyOnlyFile(d); })) return fail('not_found', 'No such file.', 404);
     }
     const chunks = this.q('SELECT data FROM blobs WHERE id=? ORDER BY idx', id);
     const out = new Uint8Array(meta.size); let o = 0;

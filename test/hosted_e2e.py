@@ -29,6 +29,12 @@ def check(cond, label):
 def make_fixtures():
     from PIL import Image, ImageDraw
     im = Image.new('RGB', (900, 1400), (245, 240, 230)); d = ImageDraw.Draw(im); d.text((40, 40), 'Moodboard: glow, summer, beach', fill=(20, 20, 20)); im.save(FIX / 'moodboard.png')
+    import openpyxl
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(['Name', 'Instagram', 'Instagram followers', 'Instagram ER %', 'TikTok', 'TikTok followers', 'TikTok ER %', 'Type (nano/micro)'])
+    ws.append(['Deniz Nano', '@deniz.nano', '34,9B', '3,1', None, None, None, 'nano'])
+    ws.append(['Ada K.', 'https://www.instagram.com/ADA.KAYA/', None, None, None, None, None, None])
+    wb.save(FIX / 'creators_tier.xlsx')
 
 def main():
     make_fixtures()
@@ -265,10 +271,50 @@ def main():
             nav(A, '#d.all'); A.wait_for_selector('h1:has-text("Dashboards")')
             check(A.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '2', 'dashboard: 2 unique influencers')
             check(A.locator('.kpi:has-text("Views") .v').first.inner_text() not in ('—', '0'), 'dashboard: views consolidated (%s)' % A.locator('.kpi:has-text("Views") .v').first.inner_text())
+            # A metric no source reported (TikTok public data has no reach) is unknown, not zero: '—' on screen, empty in the CSV.
+            mert = A.locator('#dash-creators tbody tr:has-text("Mert Kaya") td'); elif_ = A.locator('#dash-creators tbody tr:has-text("Elif Yilmaz") td')
+            check(mert.nth(7).inner_text() == '88,000' and mert.nth(8).inner_text() == '—', 'dashboard: public-only TikTok piece shows Reach — not 0 (views %s, reach %s)' % (mert.nth(7).inner_text(), mert.nth(8).inner_text()))
+            check(elif_.nth(8).inner_text() == '40,000', 'dashboard: reach from the report still summed (%s)' % elif_.nth(8).inner_text())
+            ikpi = A.locator('.kpi:has-text("Impressions")')
+            check(ikpi.locator('.v').inner_text() == '—' and ikpi.locator('.s').inner_text() == 'no data', 'dashboard: Impressions KPI without any data shows — and "no data" (%s / %s)' % (ikpi.locator('.v').inner_text(), ikpi.locator('.s').inner_text()))
+            with A.expect_download() as dl:
+                btn(A, 'Export CSV').click()
+            import csv as _csv, io as _io
+            rows = list(_csv.reader(_io.StringIO(open(dl.value.path(), encoding='utf-8-sig').read())))
+            hdr = rows[0]; mrow = next(r for r in rows if r and r[0] == 'Mert Kaya')
+            check(mrow[hdr.index('Views')] == '88000' and mrow[hdr.index('Reach')] == '', 'dashboard CSV: unknown reach is an empty cell, not 0 (%s)' % mrow[hdr.index('Reach')])
+            nav(B, '#dashboards'); B.wait_for_selector('#dash-creators tbody tr:has-text("Mert Kaya")')
+            bm = B.locator('#dash-creators tbody tr:has-text("Mert Kaya") td')
+            check(bm.nth(8).inner_text() == '—' and B.locator('.kpi:has-text("Impressions") .v').inner_text() == '—', 'customer sees the same — for unknown reach and impressions')
             nav(B, '#dashboards'); B.wait_for_selector('h1:has-text("Dashboards")')
             check(B.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '2', 'customer sees the same dashboard for their projects')
             check(B.locator('.mini-tag').count() == 0, 'no agency-internal markers on the customer dashboard')
             shot(A, 'h09b_dashboard')
+            # Secondary text (--text-3) passes WCAG AA (4.5:1) on every panel colour in both themes; login.html uses the same tokens.
+            def lum(h):
+                c = [int(h.strip().lstrip('#')[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+                c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+                return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+            def ratio(a, b):
+                la, lb = sorted([lum(a), lum(b)], reverse=True); return (la + 0.05) / (lb + 0.05)
+            TOK = '(t) => { const r = document.documentElement; const old = r.getAttribute("data-theme"); if (t) r.setAttribute("data-theme", t); else r.removeAttribute("data-theme"); const cs = getComputedStyle(r); const o = {}; ["--bg", "--surface", "--surface-2", "--sunken", "--raised", "--text-2", "--text-3"].forEach(k => { o[k] = cs.getPropertyValue(k).trim(); }); if (old) r.setAttribute("data-theme", old); else r.removeAttribute("data-theme"); return o; }'
+            app_tok = {}
+            for theme in ('dark', 'light'):
+                tk = A.evaluate(TOK, None if theme == 'dark' else 'light'); app_tok[theme] = tk
+                worst = min(ratio(tk['--text-3'], tk[k]) for k in ('--bg', '--surface', '--surface-2', '--sunken', '--raised') if tk[k])
+                check(worst >= 4.5 and ratio(tk['--text-2'], tk['--bg']) > ratio(tk['--text-3'], tk['--bg']), '%s theme: text-3 %s is at least 4.5:1 on every panel (worst %.2f) and stays dimmer than text-2' % (theme, tk['--text-3'], worst))
+            L_ctx, L = new_ctx('login'); L.goto(BASE + '/login'); L.wait_for_selector('form')
+            for theme in ('dark', 'light'):
+                lt = L.evaluate(TOK, None if theme == 'dark' else 'light')
+                check(lt['--text-3'].lower() == app_tok[theme]['--text-3'].lower(), 'login page %s theme uses the same text-3 (%s)' % (theme, lt['--text-3']))
+            L_ctx.close()
+            nav(A, '#j.' + PRID + '.match'); A.wait_for_timeout(500)
+            for theme in ('dark', 'light'):
+                A.evaluate('(t) => { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }', None if theme == 'dark' else 'light')
+                shot(A, 'h09c_text3_desktop_' + theme)
+                A.set_viewport_size({'width': 390, 'height': 844}); A.wait_for_timeout(300); shot(A, 'h09c_text3_mobile_' + theme)
+                A.set_viewport_size({'width': 1360, 'height': 900})
+            A.evaluate("() => document.documentElement.setAttribute('data-theme', 'dark')")
 
             print('10. Finance is owner-only on the server', flush=True)
             nav(A, '#p.' + PID + '.finance'); A.wait_for_selector('text=Start finance tracking')
@@ -325,6 +371,13 @@ def main():
             nav(B, '#activity'); B.wait_for_selector('text=Activity log')
             t = B.locator('table.tbl').inner_text()
             check('Signed in' not in t and 'Refreshed followers' not in t, 'customer log excludes agency-internal events')
+            check('Refreshed public metrics' not in t and 'sha256' not in t and 'container:' not in t, 'customer log shows no public-metrics refresh and no file storage details')
+            bev = []
+            for d in state(B)['audit'].values():
+                bev += list((d.get('events') or {}).values())
+            check(any(e['act'] == 'file.upload' for e in bev) and not any(k in (e.get('meta') or {}) for e in bev for k in ('sha256', 'container', 'assetId', 'verified')), 'server strips file storage details from the events the customer receives')
+            check('perf.public_refresh' not in [e['act'] for e in bev], 'public-metrics refresh is an agency-only event on the server too')
+            check('sha256' in A.locator('table.tbl').inner_text(), 'agency log still shows the file hash')
             print('14. Delete partnership', flush=True)
             nav(A, '#partnerships'); btn(A, 'New partnership').first.click(); A.fill('#np-name', 'Temp Brand'); btn(A, 'Create partnership').click(); A.wait_for_selector('h1:has-text("Temp Brand")')
             A.click('#p-delete'); A.wait_for_selector('.modal:has-text("Delete Temp Brand")')
@@ -352,8 +405,13 @@ def main():
             A.wait_for_selector('#imp-table')
             check(A.locator('#imp-table .badge:has-text("Ready")').count() == 3, 'import preview: 3 rows ready')
             check(A.locator('#imp-table .badge:has-text("Listed twice")').count() == 1 and A.locator('#imp-table .badge:has-text("No Instagram or TikTok")').count() == 1, 'import preview flags the duplicate and the row without a platform')
+            A.evaluate("""() => { window.__maxToasts = 0; new MutationObserver(() => { window.__maxToasts = Math.max(window.__maxToasts, document.querySelectorAll('.toast').length); }).observe(document.body, { childList: true, subtree: true }); }""")
             A.click('#imp-run'); toast(A, '3 creators added to the masterfile', 20000)
             toast(A, 'Stats updated for 4 profiles', 30000)
+            mx = A.evaluate('() => window.__maxToasts')
+            check(1 <= mx <= 3, 'at most 3 notices on screen at once while importing (%s)' % mx)
+            blk = A.evaluate("""() => [...document.querySelectorAll('.toast')].map(t => { const r = t.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(hit && hit.closest('.toasts')); })""")
+            check(blk and not any(blk), 'notices let clicks through to the buttons underneath (%d visible)' % len(blk))
             st = state(A)
             imp = {v['name']: v for v in st['influencers'].values() if v.get('importedFrom') == 'creators.xlsx' and not v.get('removed')}
             check(sorted(imp) == ['Ada Kaya', 'Bora Tan', 'cem.tt'], 'imported creators: %s' % sorted(imp))
@@ -362,9 +420,81 @@ def main():
             check(imp['Bora Tan']['tier'] == 'nano' and imp['Bora Tan']['platforms']['tiktok']['followers'] == 23400, 'type from the file kept; missing numbers fetched')
             check(imp['cem.tt']['tier'] == 'micro' and imp['cem.tt']['platforms']['tiktok']['handle'] == 'cem.tt', 'name from handle; type set from fetched followers')
             check(any(v['folder'] == 'Masterfile Imports' and v['verified'] for v in st['files'].values()), 'imported file stored and verified in Masterfile Imports')
+            # The raw import file is agency-internal: the brand never receives, reads or downloads it (PH-012).
+            IMPF = [k for k, v in st['files'].items() if v['folder'] == 'Masterfile Imports' and v.get('status') == 'active'][0]
+            IMPA = st['files'][IMPF]['assetId']
+            r = api(A, '/api/db/op', {'op': 'set', 'path': 'filetext/' + IMPF, 'data': {'fileId': IMPF, 'partnershipId': PID, 'text': 'name,fee', 'createdAt': '2026-10-21T10:00:00.000Z'}})
+            check(r['status'] == 200, 'agency can index text for the import file')
+            blob = lambda pg: pg.context.request.get(BASE + '/_blob/' + IMPA).status
+            check(blob(A) == 200, 'agency still downloads the import file')
+            sb = state(B)
+            check(IMPF not in sb.get('files', {}), 'brand sync carries no Masterfile Imports file')
+            check(api(B, '/api/db/doc?path=files/' + IMPF)['body']['exists'] is False and api(B, '/api/db/doc?path=filetext/' + IMPF)['body']['exists'] is False, 'brand direct read of the import file and its text: exists false')
+            bl = api(B, '/api/db/list?col=files')
+            check(bl['status'] == 200 and not any(d['path'] == 'files/' + IMPF for d in bl['body']['docs']), 'brand file listing has no import file')
+            check(blob(B) == 404, 'brand download of the import file: 404')
+            bev = [e for d in sb.get('audit', {}).values() for e in (d.get('events') or {}).values()]
+            check(not any((e.get('meta') or {}).get('folder') == 'Masterfile Imports' for e in bev) and not any(e.get('ref') == IMPF for e in bev), 'brand activity log has no import file event')
+            nav(B, '#files'); B.wait_for_selector('h1:has-text("Files")'); B.wait_for_timeout(500)
+            check(B.locator('text=creators.xlsx').count() == 0 and B.locator('option:has-text("Masterfile Imports")').count() == 0, 'brand Files & storage: no Masterfile Imports folder or file')
+            nav(B, '#p.' + PID + '.files'); B.wait_for_selector('.folder-nav'); B.wait_for_timeout(300)
+            check(B.locator('text=creators.xlsx').count() == 0, 'brand partnership Files tab: no import file')
+            shot(B, 'h15b_brand_files_no_import')
+            nav(A, '#files'); A.wait_for_selector('h1:has-text("Files")'); A.wait_for_timeout(400)
+            check(A.locator('#files-q').count() == 1 and A.locator('tr:has-text("creators.xlsx")').count() >= 1, 'agency Files & storage still lists the import file')
+            nav(A, '#j.' + [k for k, v in st['projects'].items() if v['name'] == 'Import Test'][0] + '.masterfile'); A.wait_for_selector('#mf-refresh')
             A.click('#mf-refresh'); toast(A, 'Stats updated for 4 profiles', 30000)
             check(True, 'Fetch all runs through every creator in the masterfile')
+            A.wait_for_selector('tr:has-text("Bora Tan") .tier-clash')
+            check(A.locator('tr:has-text("Bora Tan") .tier-clash').count() == 1 and A.locator('tr:has-text("Ada Kaya") .tier-clash').count() == 0, 'fetched 23.4K followers on a "nano" row bring up the type warning by themselves')
+            # Same Instagram account typed again as a profile link: refused, row count unchanged.
+            n_rows = A.locator('tr[id^="inf-row-"]').count()
+            btn(A, 'Add influencer').click(); A.fill('#inf-name', 'Ada K.'); A.click('.modal .opt:has-text("Instagram")')
+            A.fill('#inf-h-instagram', 'https://www.instagram.com/Ada.Kaya/'); A.fill('#inf-f-instagram', '12500')
+            btn(A, 'Add to masterfile').click(); A.wait_for_selector('#inf-dup')
+            check('Ada Kaya' in A.locator('#inf-dup').inner_text(), 'adding the same account again says it is already in the masterfile: %s' % A.locator('#inf-dup').inner_text())
+            A.locator('#inf-dup button').click(); A.wait_for_selector('.modal', state='detached')
+            A.wait_for_timeout(500)
+            st = state(A)
+            check(A.locator('tr[id^="inf-row-"]').count() == n_rows and len([v for v in st['influencers'].values() if v.get('projectId') == [k for k, x in st['projects'].items() if x['name'] == 'Import Test'][0] and not v.get('removed')]) == n_rows, 'duplicate not stored, row count unchanged (%d)' % n_rows)
+            # Second list: a 34.9K "nano" row is imported with a warning; an existing account in another letter case is skipped.
+            A.click('#mf-import'); A.wait_for_selector('.modal:has-text("Import influencers")')
+            A.locator('.modal button:has-text("Choose Excel or CSV") + input[type=file]').set_input_files(str(FIX / 'creators_tier.xlsx'))
+            A.wait_for_selector('#imp-table')
+            check(A.locator('#imp-table tr:has-text("Deniz Nano") .tier-clash').count() == 1, 'import preview: 34.9K followers typed "nano" gets the type warning')
+            check(A.locator('#imp-table tr:has-text("Ada K.") .badge:has-text("Already in this masterfile")').count() == 1, 'import skips an account already in the masterfile (case and link form ignored)')
+            if A.locator('#imp-fetch').count(): A.uncheck('#imp-fetch')
+            A.click('#imp-run'); toast(A, '1 creator added to the masterfile', 20000)
+            A.wait_for_selector('tr:has-text("Deniz Nano") .tier-clash')
+            st = state(A)
+            dn = [(k, v) for k, v in st['influencers'].items() if v['name'] == 'Deniz Nano'][0]
+            check(dn[1]['tier'] == 'nano' and dn[1]['platforms']['instagram']['followers'] == 34900, 'the type in the file is kept (agency decision), warning shown on the masterfile row')
+            r = api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/' + dn[0], 'data': {'state': 'pending'}})
+            nav(B, '#j.' + [k for k, x in st['projects'].items() if x['name'] == 'Import Test'][0] + '.masterfile'); B.wait_for_selector('text=Deniz Nano')
+            check(B.locator('.tier-clash').count() == 0 and B.locator('text=Type doesn\'t match').count() == 0, 'the brand does not see the type warning')
+            btn(A, re.compile('Submit for review')).click(); toast(A, 'Masterfile submitted')
+            check(True, 'Submit for review clicks straight away while notices are showing')
             shot(A, 'h15_import')
+            IPR0 = [k for k, v in state(A)['projects'].items() if v['name'] == 'Import Test'][0]
+            B.set_viewport_size({'width': 390, 'height': 844})
+            nav(B, '#j.' + IPR0 + '.masterfile'); B.wait_for_selector('#mf-table tr:has-text("Bora Tan") button:has-text("Approve")')
+            ab_ = B.locator('#mf-table tr:has-text("Bora Tan") button:has-text("Approve")').bounding_box()
+            st_ = B.locator('#mf-table tr:has-text("Bora Tan") .badge').first.bounding_box()
+            sw = B.evaluate('() => document.documentElement.scrollWidth')
+            check(ab_['x'] >= 0 and ab_['x'] + ab_['width'] <= 390 and st_['x'] + st_['width'] <= 390 and sw <= 390, 'phone 390 px: Status and Approve visible without sideways scrolling (page width %s)' % sw)
+            shot(B, 'h15b_phone_masterfile')
+            B.locator('#mf-table tr:has-text("Bora Tan") button:has-text("Approve")').click(); toast(B, 'Bora Tan approved')
+            nav(B, '#j.' + PRID + '.masterfile'); B.wait_for_selector('#deliv-table')
+            B.locator('#deliv-table tbody tr').last.hover()
+            check(B.evaluate("() => [...document.querySelectorAll('#deliv-table td.ph-hide')].filter(td => td.offsetParent).length") == 0, 'phone 390 px: empty deliverable cells stay hidden, also under the pointer')
+            over = B.evaluate("""() => [...document.querySelectorAll('#deliv-table td')].filter(td => td.offsetParent && td.getBoundingClientRect().right > 391).length""")
+            check(over == 0 and B.evaluate('() => document.documentElement.scrollWidth') <= 390, 'phone 390 px: every Remaining deliverables value is on screen (%s cut)' % over)
+            shot(B, 'h15c_phone_deliverables')
+            nav(B, '#j.' + PRID + '.review'); B.wait_for_selector('#review-table')
+            over = B.evaluate("""() => [...document.querySelectorAll('#review-table td')].filter(td => td.offsetParent && td.getBoundingClientRect().right > 391).length""")
+            check(over == 0, 'phone 390 px: content review rows fit the screen (%s cut)' % over)
+            shot(B, 'h15d_phone_review')
+            B.set_viewport_size({'width': 1360, 'height': 900})
             print('16. Admin and member access (agency and brand)', flush=True)
             IPR = [k for k, v in st['projects'].items() if v['name'] == 'Import Test'][0]
             # The same creator (same Instagram handle) approved in a second project: the dashboard lists both projects.
@@ -404,6 +534,7 @@ def main():
             check(D.locator('#mf-import').count() == 0 and btn(D, 'Add influencer').count() == 0, 'view member gets no edit controls on the masterfile')
             sd = state(D)
             check('finance' not in sd, 'member sync contains no finance')
+            check(IMPF in sd.get('files', {}) and blob(D) == 200, 'agency member sees and downloads the import file')
             check(api(D, '/api/db/doc?path=finance/' + PID)['body']['exists'] is False, 'direct finance read refused for a member')
             ab = ((state(A)['partnerships'][PID].get('summary') or {}).get('data') or {}).get('budget')
             mb = ((sd['partnerships'][PID].get('summary') or {}).get('data') or {}).get('budget')
@@ -443,13 +574,97 @@ def main():
             check('finance' not in state(E), 'brand members never receive finance')
             h = api(A, '/api/health')['body']
             check(h['ok'] and h['errors24h'] == 0 and h['storage']['files'] >= 6, 'health endpoint: no server errors, %s files stored' % h['storage']['files'])
-            A.set_viewport_size({'width': 390, 'height': 844})
+            LONG = 'Yaz Işıltısı — Güneş Koruyucu Şampuan Lansmanı ve Çok Uzun Türkçe Kampanya Adı'
+            check(api(A, '/api/db/op', {'op': 'update', 'path': 'projects/' + PRID, 'data': {'name': LONG}})['status'] == 200, 'project renamed to a %d-character Turkish name for the phone check' % len(LONG))
+            A.set_viewport_size({'width': 390, 'height': 844}); B.set_viewport_size({'width': 390, 'height': 844})
             wide = []
-            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#d.i-' + EID, '#home', '#activity', '#files', '#team', '#finance', '#settings']:
+            for h in ['#j.' + PRID + '.masterfile', '#j.' + PRID + '.match', '#j.' + PRID + '.performance', '#p.' + PID + '.overview', '#partnerships', '#dashboards', '#d.p-' + PID, '#d.j-' + PRID, '#d.i-' + EID, '#home', '#activity', '#files', '#team', '#finance', '#settings']:
                 nav(A, h); A.wait_for_timeout(400); w_ = A.evaluate('() => document.documentElement.scrollWidth')
                 if w_ > 392: wide.append((h, w_))
             check(not wide, 'no horizontal scroll at phone width on any page %s' % wide)
+            nav(A, '#d.j-' + PRID); A.wait_for_selector('#dash-scope')
+            r_ = A.evaluate('() => { const e = document.querySelector("#dash-scope"), b = e.getBoundingClientRect(); return { right: b.right, title: e.title, ov: getComputedStyle(e).textOverflow }; }')
+            check(r_['right'] <= 390 and r_['title'] == LONG and r_['ov'] == 'ellipsis', 'phone: dashboard scope picker fits the screen and shortens the long name (right %d px)' % r_['right'])
+            tags = A.evaluate('() => [...document.querySelectorAll("#dash-creators .dash-proj .tag")].map(t => ({ w: t.getBoundingClientRect().width, sw: t.scrollWidth, cw: t.clientWidth, title: t.title }))')
+            check(tags and all(t['w'] <= 200.5 for t in tags) and any(t['sw'] > t['cw'] and LONG in t['title'] for t in tags), 'phone: Projects tags stay within 200 px and the long name is shortened with its full name on hover')
+            shot(A, 'h13b_dash_mobile_long_name')
+            wideB = []
+            for h in ['#dashboards', '#d.p-' + PID, '#d.j-' + PRID]:
+                nav(B, h); B.wait_for_timeout(400); w_ = B.evaluate('() => document.documentElement.scrollWidth')
+                if w_ > 392: wideB.append((h, w_))
+            check(not wideB, 'brand at phone width: dashboards with a long project name do not scroll sideways %s' % wideB)
+            shot(B, 'h13c_brand_dash_mobile')
             shot(A, 'h13_mobile')
+
+            print('17. Scope edits keep assigned work in sight (PH-015, PH-014)', flush=True)
+            A.set_viewport_size({'width': 1360, 'height': 900}); B.set_viewport_size({'width': 1360, 'height': 900})
+            sp = state(A)['projects'][PRID]
+            def scope_project(pid_, name, content, reels):
+                # reels: list of (review, live, perf) per assigned Instagram Reels; the TikTok Post is done with data.
+                at = '2026-10-20T10:00:00.000Z'
+                r1 = api(A, '/api/db/op', {'op': 'set', 'path': 'projects/' + pid_, 'data': {'name': name, 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': content, 'creators': [], 'status': 'active', 'masterfile': {'created': True, 'status': 'approved', 'round': 1, 'approvedAt': at}, 'createdAt': at}})
+                asg = {'t0': {'platform': 'tiktok', 'type': 'post', 'createdAt': at, 'review': {'status': 'approved'}, 'publish': {'status': 'live'}, 'perf': {'views': 900, 'likes': 40}}}
+                for n, (rv, live, perf) in enumerate(reels):
+                    a = {'platform': 'instagram', 'type': 'reels', 'createdAt': '2026-10-2%dT10:00:00.000Z' % n}
+                    if rv: a['review'] = {'status': rv}
+                    if live: a['publish'] = {'status': 'live'}
+                    if perf: a['perf'] = {'views': 1000, 'likes': 50}
+                    asg['r%d' % n] = a
+                r2 = api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/' + pid_ + 'i', 'data': {'name': 'Scope Creator', 'partnershipId': PID, 'projectId': pid_, 'state': 'approved', 'order': 1, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': 'scope.creator', 'followers': 20000, 'er': 4}}, 'assignments': asg, 'createdAt': at}})
+                return r1['status'] == 200 and r2['status'] == 200
+            IG4 = [{'platform': 'instagram', 'type': 'reels', 'qty': 4}, {'platform': 'tiktok', 'type': 'post', 'qty': 1}]
+            check(scope_project('scopea', 'Scope Lock', IG4, [('approved', True, True)] + [(None, False, False)] * 5), 'project with 6 assigned Reels, one already live')
+            nav(A, '#j.scopea'); A.wait_for_selector('h1:has-text("Scope Lock")')
+            btn(A, 'Edit scope').click(); A.wait_for_selector('.modal')
+            A.locator('.modal .sub-card .between:has-text("Instagram") button:has-text("Remove platform")').click()
+            btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.crit')
+            imp = A.locator('#scope-impact').inner_text()
+            check('Instagram Reels' in imp and '6 pieces assigned' in imp and '1 live' in imp and 'cannot be removed' in imp, 'removing Instagram with 6 assigned Reels (1 live) is blocked with the counts: %s' % imp.replace('\n', ' ')[:160])
+            check([c['type'] for c in state(A)['projects']['scopea']['content']] == ['reels', 'post'], 'blocked removal leaves the project scope unchanged on the server')
+            shot(A, 'h17a_scope_blocked')
+            btn(A, 'Cancel').click(); A.wait_for_selector('.modal', state='detached')
+            btn(A, 'Edit scope').click(); A.wait_for_selector('.modal')
+            A.locator('.modal .sub-card input[inputmode="numeric"]').first.fill('2')
+            btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.warn')
+            imp = A.locator('#scope-impact').inner_text()
+            check('target 4 → 2' in imp and '4 will count as outside scope' in imp and btn(A, 'Confirm and save').count() == 1, 'lowering Reels 4 → 2 below 6 assigned warns first: %s' % imp.replace('\n', ' ')[:160])
+            check(state(A)['projects']['scopea']['content'][0]['qty'] == 4, 'nothing saved before the confirmation')
+            btn(A, 'Confirm and save').click(); toast(A, 'Project updated')
+            check(state(A)['projects']['scopea']['content'][0]['qty'] == 2, 'confirmed: Reels target saved as 2')
+            A.wait_for_selector('#outside-line')
+            check('4 pieces outside scope' in A.locator('#outside-line').inner_text(), 'progress card counts the 4 Reels outside scope')
+            # Instagram already gone from the scope while 6 Reels are assigned and posted (data written before this fix): never 100%.
+            check(scope_project('scopeb', 'Scope Gone', [{'platform': 'tiktok', 'type': 'post', 'qty': 1}], [('approved', True, True)] + [('approved', False, False)] * 5), 'project whose scope no longer has Instagram but 6 Reels are assigned')
+            for pg, who in ((A, 'agency'), (B, 'brand')):
+                pg.wait_for_timeout(600); nav(pg, '#j.scopeb'); pg.wait_for_selector('#stage-line')
+                big = pg.locator('.tr-big').inner_text().replace('\n', ''); line = pg.locator('#stage-line').inner_text(); out = pg.locator('#outside-line').inner_text()
+                check(big != '100%' and 'All five stages complete' not in line and 'outside scope' in line and '6 pieces outside scope' in out, '%s: work outside the scope keeps the card below 100%% (%s · %s · %s)' % (who, big, line, out))
+            shot(B, 'h17b_brand_outside_scope')
+            # Removing a type whose pieces are all unsent: confirm, and the unsent pieces go with it.
+            check(scope_project('scopec', 'Scope Unsent', IG4, [(None, False, False)] * 6), 'project with 6 unsent Reels')
+            nav(A, '#j.scopec'); A.wait_for_selector('h1:has-text("Scope Unsent")')
+            btn(A, 'Edit scope').click(); A.wait_for_selector('.modal')
+            A.locator('.modal .sub-card .between:has-text("Instagram") button:has-text("Remove platform")').click()
+            btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.warn')
+            check('the 6 unsent pieces will be removed' in A.locator('#scope-impact').inner_text(), 'removing a type with only unsent pieces asks for confirmation')
+            btn(A, 'Confirm and save').click(); toast(A, 'Project updated')
+            sc = state(A)
+            left = [a for a in sc['influencers']['scopeci']['assignments'].values() if a['platform'] == 'instagram' and not a.get('removed')]
+            check([c['type'] for c in sc['projects']['scopec']['content']] == ['post'] and not left, 'confirmed: Instagram left the scope and its 6 unsent pieces were removed')
+            # PH-014: quantity 0 or a decimal is refused, not saved as 1.
+            nav(A, '#p.' + PID + '.projects'); btn(A, 'New project').first.click(); A.wait_for_selector('.modal')
+            A.fill('#pj-name', 'Zero Check'); A.select_option('#pj-msa', index=1); A.click('.modal .opt:has-text("Vaseline")')
+            btn(A, 'Add deliverable').click(); A.click('.modal .pop button:has-text("Content")'); A.click('.modal .pop button:has-text("Instagram")')
+            for bad in ('0', '2,5', ''):
+                A.locator('.modal .sub-card input[inputmode="numeric"]').first.fill(bad)
+                btn(A, 'Create project').click(); A.wait_for_selector('#pj-qty-err')
+                check(A.locator('.modal .sub-card input.invalid').count() == 1 and A.locator('.modal').count() == 1, 'quantity %r refused with a message on the field' % bad)
+            check(not [v for v in state(A)['projects'].values() if v['name'] == 'Zero Check'], 'no project saved with a 0, decimal or empty quantity')
+            shot(A, 'h17c_qty_zero')
+            A.locator('.modal .sub-card input[inputmode="numeric"]').first.fill('3')
+            btn(A, 'Create project').click(); A.wait_for_selector('h1:has-text("Zero Check")')
+            zc = [v for v in state(A)['projects'].values() if v['name'] == 'Zero Check']
+            check(zc and zc[0]['content'][0]['qty'] == 3, 'a valid quantity still saves as typed (3)')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):

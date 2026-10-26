@@ -194,6 +194,11 @@ def main():
             btn('Add deliverable').click(); page.click('.modal .pop button:has-text("Creator")')
             page.locator('.modal button:has-text("Upload project protocol") + input[type=file]').set_input_files(str(FIX / 'protocol.pdf'))
             page.wait_for_selector('.modal .tag:has-text("protocol.pdf")')
+            for bad in ('0', '1.5'):
+                page.locator('.modal .sub-card input[inputmode="numeric"]').first.fill(bad)
+                btn('Create project').click(); page.wait_for_selector('#pj-qty-err')
+                check(page.locator('.modal .sub-card input.invalid').count() == 1 and not docs('projects'), 'quantity %r refused with a message, nothing saved' % bad)
+            page.locator('.modal .sub-card input[inputmode="numeric"]').first.fill('2')
             btn('Create project').click()
             page.wait_for_selector('h1:has-text("Summer Glow")')
             toast_wait('Project summary updated', 20000)
@@ -224,6 +229,19 @@ def main():
             check(byname['Elif Yilmaz'][1]['platforms']['instagram']['handle'] == 'elif.yilmaz', 'profile URL cleaned to handle')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['followers'] == 48200 and byname['Mert Kaya'][1]['tier'] == 'micro', 'Turkish "48,2B" parsed as 48,200 and tier suggested micro')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['er'] == 3.4, 'decimal comma ER parsed')
+            # The same account cannot be entered twice in one masterfile (also when editing another row).
+            page.locator('button[aria-label="Edit Zeynep Ak"]').click(); page.fill('#inf-h-instagram', 'https://www.instagram.com/MertKaya/'); btn('Save').click()
+            page.wait_for_selector('#inf-dup')
+            check('Mert Kaya' in page.locator('#inf-dup').inner_text(), 'editing a row to an account already listed is refused with its name')
+            page.locator('.modal button:has-text("Cancel")').click(); page.wait_for_selector('.modal', state='detached')
+            check(docs('influencers')[byname['Zeynep Ak'][0]]['platforms']['instagram']['handle'] == 'zeynepak' and len(docs('influencers')) == 3, 'refused edit not stored')
+            # A type that contradicts the follower count is flagged for the agency, and clears when fixed.
+            page.locator('button[aria-label="Edit Mert Kaya"]').click(); page.click('.modal .opt:has-text("Nanoinfluencer")'); btn('Save').click(); toast_wait('Influencer updated')
+            page.wait_for_selector('tr:has-text("Mert Kaya") .tier-clash')
+            check(page.locator('tr:has-text("Mert Kaya") .tier-clash').count() == 1 and page.locator('.tier-clash').count() == 1, '48.2K followers typed nano: warning on that row only')
+            page.locator('button[aria-label="Edit Mert Kaya"]').click(); page.click('.modal .opt:has-text("Microinfluencer")'); btn('Save').click(); toast_wait('Influencer updated')
+            page.wait_for_function('() => !document.querySelector(".tier-clash")', timeout=8000)
+            check(docs('influencers')[byname['Mert Kaya'][0]]['tier'] == 'micro', 'warning clears once the type matches')
             btn(re.compile('Submit for review')).click(); toast_wait('Masterfile submitted')
             check(all(v['state'] == 'pending' for v in docs('influencers').values()), 'all creators pending after submit')
 
@@ -395,6 +413,40 @@ def main():
             er = page.locator('.kpi:has-text("Engagement rate") .v').first.inner_text()
             check(er == '4.85%', 'weighted ER = (5400+210+80+150)*2 / 241000 = 4.85%% (got %s)' % er)
             shot('13_performance')
+            # Assignment totals and the stage line on a project that is ahead of its first open stage:
+            # Reels 4 target with 6 assigned, Story 0 of 2, TikTok 1 of 1, one Reels already posted with data.
+            page.evaluate('''([prid]) => { const d = window.__mockdb.get(); const pr = JSON.parse(JSON.stringify(d["projects/" + prid]));
+                pr.name = "Totals Check"; pr.content = [{ platform: "instagram", type: "reels", qty: 4 }, { platform: "instagram", type: "story", qty: 2 }, { platform: "tiktok", type: "post", qty: 1 }];
+                pr.creators = []; pr.masterfile = { created: true, status: "approved", round: 1, approvedAt: "2026-10-10T10:00:00.000Z" }; d["projects/tchk"] = pr;
+                const src = Object.entries(d).find(([k, v]) => k.startsWith("influencers/") && v.projectId === prid)[1];
+                const inf = JSON.parse(JSON.stringify(src)); inf.projectId = "tchk"; inf.state = "approved"; inf.name = "Totals Creator"; inf.assignments = {};
+                const at = n => "2026-10-1" + n + "T10:00:00.000Z";
+                for (let n = 0; n < 6; n++) inf.assignments["r" + n] = { platform: "instagram", type: "reels", createdAt: at(n) };
+                inf.assignments.r0.review = { status: "approved" }; inf.assignments.r0.publish = { status: "live" }; inf.assignments.r0.perf = { views: 1000, likes: 50 };
+                inf.assignments.t0 = { platform: "tiktok", type: "post", createdAt: at(7) };
+                d["influencers/tchk1"] = inf; window.__mockdb.set(d); }''', [PRID])
+            for who in ('owner', 'can'):
+                login(who); nav('#j.tchk.match'); page.wait_for_selector('#asg-total')
+                tot = page.locator('#asg-total').inner_text().replace('\n', ' ')
+                check(tot.startswith('5 / 7') and '+2 over target' in tot, '%s: assignment total counts at most the target per type: %s' % (who, tot))
+                check(page.locator('.stp:has-text("Content × Influencer match") .stp-d').inner_text() == '5 of 7 assigned', '%s: total matches the stage card (5 of 7 assigned)' % who)
+                check(page.locator('.capc.over:has-text("2 over target")').count() == 1, '%s: Reels card keeps its over-target warning' % who)
+                line = page.locator('#stage-line').inner_text()
+                check(line == 'Stage 5 of 5 · Performance data under way · still open: Content × Influencer match (5 of 7 assigned)', '%s: stage line shows the furthest stage under way and the open one: %s' % (who, line))
+                shot('13b_totals_' + who)
+            # A scope that no longer holds Instagram while 6 Reels are assigned (one posted): the card is never 100%.
+            page.evaluate('''() => { const d = window.__mockdb.get(); const pr = JSON.parse(JSON.stringify(d["projects/tchk"]));
+                pr.name = "Scope Gone"; pr.content = [{ platform: "tiktok", type: "post", qty: 1 }]; d["projects/tgone"] = pr;
+                const inf = JSON.parse(JSON.stringify(d["influencers/tchk1"])); inf.projectId = "tgone";
+                for (const k of Object.keys(inf.assignments)) inf.assignments[k].review = { status: "approved" };
+                inf.assignments.t0.publish = { status: "live" }; inf.assignments.t0.perf = { views: 900, likes: 40 };
+                d["influencers/tgone1"] = inf; window.__mockdb.set(d); }''')
+            for who in ('owner', 'can'):
+                login(who); nav('#j.tgone'); page.wait_for_selector('#stage-line')
+                big = page.locator('.tr-big').inner_text().replace('\n', ''); line = page.locator('#stage-line').inner_text(); out = page.locator('#outside-line').inner_text()
+                check(big == '99%' and line == 'Scope complete · 5 pieces outside scope still open' and out.startswith('6 pieces outside scope'), '%s: Reels outside the scope keep the card below 100%% (%s · %s · %s)' % (who, big, line, out))
+            page.evaluate('() => { const d = window.__mockdb.get(); for (const k of ["projects/tchk", "influencers/tchk1", "projects/tgone", "influencers/tgone1"]) delete d[k]; window.__mockdb.set(d); }')
+            login('owner')
             nav('#d.all'); page.wait_for_selector('h1:has-text("Dashboards")')
             check(page.locator('.kpi:has-text("Unique influencers") .v').inner_text() == '3', 'dashboard: 3 unique influencers')
             check(page.locator('.kpi:has-text("Views") .v').first.inner_text() in ('241K', '241.0K'), 'dashboard: consolidated views match the project')
@@ -405,6 +457,11 @@ def main():
             btn('Export CSV').click(); page.wait_for_timeout(400)
             dcsv = page.evaluate('() => window.__downloads.filter(d => d.filename.includes("dashboard")).pop()')
             check(dcsv and 'Elif Yilmaz' in dcsv['text'] and 'Summer Glow' in dcsv['text'], 'dashboard CSV export')
+            import csv as _csv, io as _io
+            crow = list(_csv.reader(_io.StringIO(dcsv['text'].lstrip('\ufeff').split('\n\n')[0])))
+            ch = crow[0]; ix = [ch.index(k) for k in ('Views', 'Reach', 'Engagements')]
+            nodata = [r for r in crow[1:] if r and r[0] != 'Elif Yilmaz']; elif_r = next(r for r in crow[1:] if r and r[0] == 'Elif Yilmaz')
+            check(nodata and all(r[i] == '' for r in nodata for i in ix) and elif_r[ix[0]] == '241000', 'dashboard CSV: creators without performance data have empty Views/Reach/Engagements, not 0 (%s)' % '; '.join(r[0] + ' ' + '/'.join(r[i] for i in ix) for r in crow[1:] if r))
             page.locator('#dash-creators button.lnk:has-text("Elif Yilmaz")').click(); page.wait_for_selector('#creator-dash')
             check(page.locator('h1:has-text("Elif Yilmaz")').count() == 1 and page.locator('#creator-campaigns tbody tr:has-text("Summer Glow")').count() == 1, 'influencer dashboard opens from the name with its campaigns')
             ck = page.locator('#creator-dash .kpi:has-text("Views") .v').first.inner_text()
@@ -433,7 +490,16 @@ def main():
             check(len(docs('finance')[PID].get('history', {})) >= 4, 'finance history logged in owner-only area')
             check(not any(e['act'].startswith('fin') for e in events()), 'no finance details in the shared activity log')
             shot('14_finance')
+            # A raw masterfile import is an agency working file: listed for the agency, never for the brand (PH-012).
+            page.evaluate('async ([pid, prid]) => { const db = await window.claude.use("db"); await db.collection("files").doc("rawimp").set({ partnershipId: pid, projectId: prid, folder: "Masterfile Imports", kind: "masterfile", name: "raw-import.xlsx", originalName: "raw-import.xlsx", ext: "xlsx", size: 2048, sha256: "ab".repeat(32), version: 1, status: "active", verified: true, createdAt: "2026-10-21T10:00:00.000Z" }); }', [PID, PRID])
+            nav('#files'); page.wait_for_selector('tr:has-text("raw-import.xlsx")')
+            check(True, 'agency Files & storage lists the masterfile import')
             login('can')
+            nav('#files'); page.wait_for_selector('h1:has-text("Files")'); page.wait_for_timeout(400)
+            check(page.locator('text=raw-import.xlsx').count() == 0 and page.locator('option:has-text("Masterfile Imports")').count() == 0, 'brand Files & storage: no Masterfile Imports folder or file')
+            nav('#p.' + PID + '.files'); page.wait_for_selector('.folder-nav'); page.wait_for_timeout(300)
+            check(page.locator('text=raw-import.xlsx').count() == 0, 'brand partnership Files tab: no import file')
+            shot('14b_brand_files')
             fin_read = page.evaluate('async () => (await (await window.claude.use("db")).collection("finance").get()).size')
             check(fin_read == 0, 'customer reading finance gets nothing (server rule)')
             fin_write = page.evaluate('async () => { try { await (await window.claude.use("db")).collection("finance").doc("x").set({a:1}); return "written"; } catch (e) { return e.code; } }')
@@ -528,6 +594,14 @@ def main():
             sw = page.evaluate('() => document.documentElement.scrollWidth')
             check(sw <= 392, 'no horizontal page scroll at phone width (scrollWidth %d)' % sw)
             shot('20_mobile')
+            LONG = 'Yaz Işıltısı — Güneş Koruyucu Şampuan Lansmanı ve Çok Uzun Türkçe Kampanya Adı'
+            page.evaluate('async ([id, n]) => { await (await window.claude.use("db")).collection("projects").doc(id).update({ name: n }); }', [PRID, LONG]); page.wait_for_timeout(400)
+            wide = []
+            for h in ['#dashboards', '#d.p-' + PID, '#d.j-' + PRID]:
+                nav(h); page.wait_for_timeout(400); sw = page.evaluate('() => document.documentElement.scrollWidth')
+                if sw > 392: wide.append((h, sw))
+            check(not wide, 'dashboards with a long Turkish project name: no horizontal scroll at phone width %s' % wide)
+            shot('20b_dash_mobile_long_name')
             page.set_viewport_size({'width': 1360, 'height': 900})
             page.emulate_media(color_scheme='dark'); nav('#home'); page.wait_for_timeout(400); shot('21_dark')
         except Exception as e:

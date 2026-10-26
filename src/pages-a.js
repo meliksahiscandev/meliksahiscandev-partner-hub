@@ -81,7 +81,7 @@ function PartnershipView({ id, tab }) {
   if (!p || !isActive(p) || !visibleParts(s, role).some(x => x.id === id)) return html`<${Empty} title=${s.loaded.partnerships ? 'Partnership not found' : 'Loading…'} action=${s.loaded.partnerships ? html`<button className="btn" onClick=${() => go({ view: 'partnerships' })}>Back to partnerships</button>` : null}>${p && !isActive(p) && role.canAgency ? 'It is in the trash. Restore it from Files & storage → Trash.' : ''}<//>`;
   const prs = projectsOf(s, p.id);
   const members = invitesFor(s, 'customer', p.id).filter(i => i.status !== 'revoked');
-  const tabs = [{ key: 'overview', label: 'Overview' }, { key: 'agreements', label: 'Agreements & brands' }, { key: 'projects', label: 'Projects', count: prs.length }, { key: 'files', label: 'Files', count: filesOf(s, p.id).length }, { key: 'members', label: 'Members', count: members.length }, { key: 'activity', label: 'Activity' }];
+  const tabs = [{ key: 'overview', label: 'Overview' }, { key: 'agreements', label: 'Agreements & brands' }, { key: 'projects', label: 'Projects', count: prs.length }, { key: 'files', label: 'Files', count: filesOf(s, p.id).filter(f => !role.asCustomer || !agencyOnlyFile(f)).length }, { key: 'members', label: 'Members', count: members.length }, { key: 'activity', label: 'Activity' }];
   if (role.canFinance) tabs.push({ key: 'finance', label: 'Finance' });
   const cur = tabs.some(t => t.key === tab) ? tab : 'overview';
   const myRole = role.isCustomer ? role.customerRole(p.id) : null;
@@ -261,7 +261,7 @@ function ProjectList({ p }) {
     ${prs.map(pr => { const m = projectMetrics(pr, infsOf(s, pr.id)); const msa = msas.find(x => x.id === pr.msaId); return html`<tr key=${pr.id} className="click" onClick=${() => go({ view: 'project', id: pr.id })}>
       <td><strong>${pr.name}</strong></td><td>${msa ? html`<span className="row nw" style=${{ gap: '6px' }}>${msa.label}${msa.status !== 'uploaded' ? html`<${Badge} cls="crit">pending<//>` : null}</span>` : '—'}</td>
       <td><div className="row" style=${{ gap: '4px' }}>${(pr.brandIds || []).map(b => bi[b] ? html`<span key=${b} className="tag">${bi[b].name}</span>` : null)}</div></td>
-      <td className="small">${m.overall >= 1 ? 'Complete' : (m.currentIdx + 1) + ' · ' + STAGES[m.currentIdx].label}</td><td style=${{ minWidth: '120px' }}><${MiniTrack} m=${m}/></td><td className="r num mono">${Math.round(m.overall * 100)}%</td></tr>`; })}
+      <td className="small">${stageText(m, true)}</td><td style=${{ minWidth: '120px' }}><${MiniTrack} m=${m}/></td><td className="r num mono">${Math.round(m.overall * 100)}%</td></tr>`; })}
   </tbody></table></div>`;
 }
 
@@ -282,8 +282,8 @@ function FilesTable({ files, showPath, empty }) {
   </tbody></table></div>`;
 }
 function PartnershipFiles({ p }) {
-  const { s } = useCtx();
-  const files = s.files.filter(f => f.partnershipId === p.id && (f.status === 'active' || f.status === 'failed'));
+  const { s, role } = useCtx();
+  const files = filesFor(s, role).filter(f => f.partnershipId === p.id && (f.status === 'active' || f.status === 'failed'));
   const prs = projectsOf(s, p.id);
   const folders = [{ key: 'all', label: 'All files' }, { key: FOLDERS.docs, label: FOLDERS.docs }, { key: FOLDERS.msa, label: FOLDERS.msa }];
   prs.forEach(pr => { folders.push({ key: pr.id + '|' + FOLDERS.shots, label: pr.name + ' / ' + FOLDERS.shots, pr: pr.id, f: FOLDERS.shots }); folders.push({ key: pr.id + '|' + FOLDERS.perf, label: pr.name + ' / ' + FOLDERS.perf, pr: pr.id, f: FOLDERS.perf }); });
@@ -311,14 +311,14 @@ function AllFiles() {
   const { s, role } = useCtx();
   const parts = visibleParts(s, role); const pids = new Set(parts.map(p => p.id));
   const [pid, setPid] = useState(''); const [folder, setFolder] = useState(''); const [q, setQ] = useState('');
-  const files = s.files.filter(f => (f.status === 'active' || f.status === 'failed') && (role.isAgency ? (!f.partnershipId || pids.has(f.partnershipId)) : pids.has(f.partnershipId)))
+  const files = filesFor(s, role).filter(f => (f.status === 'active' || f.status === 'failed') && (role.isAgency ? (!f.partnershipId || pids.has(f.partnershipId)) : pids.has(f.partnershipId)))
     .filter(f => !pid || (pid === '_ws' ? !f.partnershipId : f.partnershipId === pid)).filter(f => !folder || f.folder === folder)
     .filter(f => !q.trim() || (f.name + ' ' + (f.originalName || '') + ' ' + (f.sha256 || '')).toLowerCase().includes(q.trim().toLowerCase()))
     .sort(byCreated).reverse();
   const total = files.reduce((t, f) => t + (f.size || 0), 0);
   return html`<div className="stack">
     <div className="row"><select className="input sm" style=${{ width: 'auto' }} value=${pid} onChange=${e => setPid(e.target.value)} aria-label="Partnership"><option value="">All partnerships</option>${parts.map(p => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}${role.isAgency ? html`<option value="_ws">Workspace (recovered)</option>` : null}</select>
-      <select className="input sm" style=${{ width: 'auto' }} value=${folder} onChange=${e => setFolder(e.target.value)} aria-label="Folder"><option value="">All folders</option>${Object.values(FOLDERS).map(f => html`<option key=${f} value=${f}>${f}</option>`)}</select>
+      <select className="input sm" style=${{ width: 'auto' }} value=${folder} onChange=${e => setFolder(e.target.value)} aria-label="Folder"><option value="">All folders</option>${Object.values(FOLDERS).filter(f => !role.asCustomer || f !== FOLDERS.imports).map(f => html`<option key=${f} value=${f}>${f}</option>`)}</select>
       <input className="input sm" style=${{ maxWidth: '260px' }} id="files-q" value=${q} onChange=${e => setQ(e.target.value)} placeholder="Name or checksum"/><span className="t3 small">${plural(files.length, 'file')} · ${fmtBytes(total)}</span></div>
     <${FilesTable} files=${files} showPath=${true} empty="No files match."/>
   </div>`;
@@ -397,7 +397,7 @@ function ActivityPage() {
     if (!CAP.downloads) return toast('Downloads are not available in this view.', 'warn');
     const esc = v => '"' + String(v === undefined || v === null ? '' : v).replace(/"/g, '""') + '"';
     const rows = [['time_utc', 'actor_id', 'actor_name', 'role', 'action', 'category', 'description', 'partnership', 'project', 'reference', 'details'].join(',')]
-      .concat(all.map(e => [e.at, e.by, personName(e.by), roleText(e.role), e.act, catOf(e.act), e.text, (partnerOf(s, e.pid) || {}).name || '', (s.projects.find(x => x.id === e.prid) || {}).name || '', e.refName || e.ref || '', e.meta ? JSON.stringify(e.meta) : ''].map(esc).join(',')));
+      .concat(all.map(e => [e.at, e.by, personName(e.by), roleText(e.role), e.act, catOf(e.act), e.text, (partnerOf(s, e.pid) || {}).name || '', (s.projects.find(x => x.id === e.prid) || {}).name || '', e.refName || e.ref || '', eventMeta(e, role.inAgency) ? JSON.stringify(eventMeta(e, role.inAgency)) : ''].map(esc).join(',')));
     const ok = await act(() => CAP.downloads.save({ filename: 'activity_log_' + fileStamp() + '.csv', data: '﻿' + rows.join('\n') }));
     if (ok) logEvent('backup.export_log', { scope: 'agency', text: 'Exported the activity log (' + all.length + ' events)' });
   };
@@ -408,7 +408,7 @@ function ActivityPage() {
       <select className="input sm" style=${{ width: 'auto' }} value=${cat} onChange=${e => setCat(e.target.value)} aria-label="Category"><option value="">All categories</option>${['Setup', 'Approvals', 'Content', 'Files', 'Members', 'System'].map(c => html`<option key=${c} value=${c}>${c}</option>`)}</select>
       <input className="input sm" style=${{ maxWidth: '260px' }} id="act-q" value=${q} onChange=${e => setQ(e.target.value)} placeholder="Search events"/><span className="t3 small">${plural(all.length, 'event')} loaded</span></div>
     <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Where</th><th>Details</th></tr></thead><tbody>
-      ${all.length ? all.slice(0, 500).map(e => { const p = partnerOf(s, e.pid); const pr = e.prid && s.projects.find(x => x.id === e.prid); return html`<tr key=${e.id}><td className="small num" style=${{ whiteSpace: 'nowrap' }}>${fmtWhen(e.at)}${e.pending ? html`<div><${Badge} cls="warn">queued<//></div>` : null}</td><td><div className="cs"><span className="small" style=${{ fontWeight: 500 }}>${personName(e.by)}</span><span className="xs t3">${roleText(e.role)}</span></div></td><td><div className="cs"><span className="small">${e.text}</span><span className="xs t3 mono">${e.act}</span></div></td><td className="small t2">${p ? p.name + (pr ? ' / ' + pr.name : '') : 'Workspace'}</td><td className="xs t3 mono" style=${{ maxWidth: '260px', wordBreak: 'break-all' }}>${e.meta ? Object.entries(e.meta).map(([k, v]) => k + ': ' + (k === 'sha256' ? String(v).slice(0, 16) : typeof v === 'object' ? JSON.stringify(v) : v)).join(' · ') : ''}</td></tr>`; })
+      ${all.length ? all.slice(0, 500).map(e => { const p = partnerOf(s, e.pid); const pr = e.prid && s.projects.find(x => x.id === e.prid); return html`<tr key=${e.id}><td className="small num" style=${{ whiteSpace: 'nowrap' }}>${fmtWhen(e.at)}${e.pending ? html`<div><${Badge} cls="warn">queued<//></div>` : null}</td><td><div className="cs"><span className="small" style=${{ fontWeight: 500 }}>${personName(e.by)}</span><span className="xs t3">${roleText(e.role)}</span></div></td><td><div className="cs"><span className="small">${e.text}</span><span className="xs t3 mono">${e.act}</span></div></td><td className="small t2">${p ? p.name + (pr ? ' / ' + pr.name : '') : 'Workspace'}</td><td className="xs t3 mono" style=${{ maxWidth: '260px', wordBreak: 'break-all' }}>${eventMeta(e, role.inAgency) ? Object.entries(eventMeta(e, role.inAgency)).map(([k, v]) => k + ': ' + (k === 'sha256' ? String(v).slice(0, 16) : typeof v === 'object' ? JSON.stringify(v) : v)).join(' · ') : ''}</td></tr>`; })
         : html`<tr><td colSpan="5" className="t3" style=${{ padding: '22px 12px' }}>${s.loaded.audit ? 'No events match.' : 'Loading…'}</td></tr>`}
     </tbody></table></div>
     <div><button className="btn btn-sm" disabled=${loading} onClick=${async () => { setLoading(true); const n = await act(loadOlderAudit); setLoading(false); if (n === 0) toast('No older activity.'); }}>${loading ? html`<${Spin}/>` : null}Load older activity</button></div>
