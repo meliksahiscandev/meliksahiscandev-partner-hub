@@ -373,7 +373,10 @@ function projectMetrics(pr, infs) {
   const counts = { assigned: asgTotal, approved: asgApproved, live: asgLive, data: asgData };
   const ratio = f => totalQty > 0 ? capSum(f) / totalQty : (asgTotal ? counts[f] / asgTotal : 0);
   const of = f => totalQty > 0 ? capSum(f) + ' of ' + totalQty : counts[f] + ' of ' + asgTotal;
-  const creators = (pr.creators || []).map(c => ({ tier: c.tier, count: +c.count || 0, listed: infs.filter(i => i.tier === c.tier).length, approved: infs.filter(i => i.tier === c.tier && i.state === 'approved').length }));
+  const tierRow = (tier, count, extra) => ({ tier, count, listed: infs.filter(i => i.tier === tier).length, approved: infs.filter(i => i.tier === tier && i.state === 'approved').length, extra });
+  const creators = (pr.creators || []).map(c => tierRow(c.tier, +c.count || 0, false));
+  // With a creator scope set, creators of a type outside it are listed on their own row ("not in scope") instead of vanishing.
+  if (creators.length) Object.keys(TIERS).forEach(t => { if (!creators.some(c => c.tier === t) && infs.some(i => i.tier === t)) creators.push(tierRow(t, 0, true)); });
   const creatorTotal = creators.reduce((t, c) => t + c.count, 0);
   const mf = pr.masterfile || {};
   const approvedRows = infs.filter(i => i.state === 'approved').length;

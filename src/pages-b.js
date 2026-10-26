@@ -68,7 +68,7 @@ function DeliverableTracker({ m, pr, fin }) {
   return html`<${Card} title="Remaining deliverables" sub=${m.delivered + ' delivered · ' + m.remaining + ' remaining' + (m.totalQty ? ' of ' + m.totalQty : '')} actions=${finLine} flush=${true}>
     ${m.targets.length || m.creators.length ? html`<div className="tbl-wrap"><table className="tbl stk" id="deliv-table"><thead><tr><th>Deliverable</th><th className="r">Target</th><th className="r">Assigned</th><th className="r">In review</th><th className="r">Preview approved</th><th className="r">Delivered</th><th className="r">Remaining</th></tr></thead><tbody>
       ${m.targets.map(t => html`<tr key=${t.key}><td className="full"><span className="row nw" style=${{ gap: '6px' }}><${Plat} p=${t.platform} t=${t.type}/>${t.extra ? html`<${Badge} cls="warn">not in scope<//>` : null}</span></td><td className="r num" data-label="Target">${t.qty || '—'}</td><td className="r num" data-label="Assigned">${t.assigned}</td><td className="r num" data-label="In review">${t.submitted}</td><td className="r num" data-label="Preview approved">${t.approved}</td><td className="r num" data-label="Delivered"><strong>${t.live}</strong></td><td className="r num" data-label="Remaining">${t.qty ? html`<span style=${color(t.qty - t.live)}>${Math.max(0, t.qty - t.live)}</span>` : '—'}</td></tr>`)}
-      ${m.creators.map(c => html`<tr key=${'c' + c.tier}><td className="full"><span className="tag">${TIERS[c.tier].label}</span></td><td className="r num" data-label="Target">${c.count}</td><td className="r num" data-label="Listed">${c.listed} <span className="t3 xs">listed</span></td><td className="r num ph-hide">—</td><td className="r num" data-label="Approved">${c.approved} <span className="t3 xs">approved</span></td><td className="r num ph-hide">—</td><td className="r num" data-label="Remaining"><span style=${color(c.count - c.approved)}>${Math.max(0, c.count - c.approved)}</span></td></tr>`)}
+      ${m.creators.map(c => html`<tr key=${'c' + c.tier}><td className="full"><span className="row nw" style=${{ gap: '6px' }}><span className="tag">${TIERS[c.tier].label}</span>${c.extra ? html`<${Badge} cls="warn">not in scope<//>` : null}</span></td><td className="r num" data-label="Target">${c.extra ? '—' : c.count}</td><td className="r num" data-label="Listed">${c.listed} <span className="t3 xs">listed</span></td><td className="r num ph-hide">—</td><td className="r num" data-label="Approved">${c.approved} <span className="t3 xs">approved</span></td><td className="r num ph-hide">—</td><td className="r num" data-label="Remaining">${c.extra ? '—' : html`<span style=${color(c.count - c.approved)}>${Math.max(0, c.count - c.approved)}</span>`}</td></tr>`)}
     </tbody></table></div>` : html`<p className="t3" style=${{ padding: '14px 16px' }}>No deliverables defined. Use Edit scope to add content and creators.</p>`}
   <//>`;
 }
@@ -119,7 +119,7 @@ function MasterfileTab({ pr, p, infs, m }) {
   return html`<div className="stack">
     <div className="card"><div className="card-body"><div className="between">
       <div className="stack s6"><div className="row">${statusBadge}<span className="t3 small">${plural(infs.length, 'creator')} · ${approvedCount} approved${drafts && !role.asCustomer ? ' · ' + drafts + ' not sent' : ''}</span></div>
-        <div className="row" style=${{ gap: '6px' }}>${m.creators.map(c => html`<${Badge} key=${c.tier} cls=${c.listed >= c.count ? 'ok' : 'outline'} nodot=${true}>${TIERS[c.tier].short} ${c.listed}/${c.count}<//>`)}</div></div>
+        <div className="row" style=${{ gap: '6px' }}>${m.creators.map(c => c.extra ? html`<${Badge} key=${c.tier} cls="warn" nodot=${true}>${TIERS[c.tier].short} ${c.listed} · not in scope<//>` : html`<${Badge} key=${c.tier} cls=${c.listed >= c.count ? 'ok' : 'outline'} nodot=${true}>${TIERS[c.tier].short} ${c.listed}/${c.count}<//>`)}</div></div>
       <div className="row">
         ${role.canAgency && socialOn() && infs.length ? html`<button className="btn" id="mf-refresh" disabled=${!!fetchJob} onClick=${refreshAll} title="Fetch followers and engagement rate for every creator in this masterfile, one after another. Values you entered by hand are kept.">${fetchJob ? html`<${Spin}/> ${fetchJob.step}` : html`<${Icon} n="refresh" s=${15}/>Fetch all`}</button>` : null}
         ${role.canAgency && !approved ? html`<button className="btn" id="mf-import" onClick=${() => openModal('importInfluencers', { pr, p })}><${Icon} n="upload" s=${15}/>Import list</button>` : null}
@@ -129,7 +129,7 @@ function MasterfileTab({ pr, p, infs, m }) {
         ${role.asCustomer && inReview && canAct ? html`<button className="btn btn-primary" disabled=${!allApproved} onClick=${finalApprove}><${Icon} n="check" s=${15}/>Final approval</button>` : null}
       </div></div>
       ${role.asCustomer && inReview && canAct && !allApproved ? html`<p className="t3 small">${drafts ? 'The agency is still adding creators. ' : ''}Approve every creator to enable final approval. Comment on any creator you want changed.</p>` : null}
-      ${role.asCustomer && !canAct ? html`<p className="t3 small">You have view-only access to this account.</p>` : null}
+      <${ViewOnlyNote} pid=${p.id}/>
       ${role.preview ? html`<p className="t3 small">Customer preview: actions here are recorded as "Agency for customer".</p>` : null}
     </div></div>
     ${rows.length ? html`<div className="tbl-wrap"><table className="tbl stk" id="mf-table"><thead><tr><th>#</th><th>Influencer</th><th>Instagram</th><th>TikTok</th><th>Tier</th><th>Status</th><th className="r">Actions</th></tr></thead><tbody>
@@ -363,6 +363,8 @@ function InfluencerModal({ pr, inf }) {
   const maxF = Math.max(0, ...Object.keys(pl).filter(k => pl[k].enabled).map(k => parseNum(pl[k].followers) || 0));
   const suggested = maxF ? (maxF < 10000 ? 'nano' : maxF <= 100000 ? 'micro' : 'above') : '';
   const effTier = touched ? tier : (suggested === 'above' ? '' : suggested);
+  const scopeTiers = (pr.creators || []).filter(c => +c.count > 0);
+  const outOfScope = !!effTier && scopeTiers.length > 0 && !scopeTiers.some(c => c.tier === effTier);
   const save = async () => {
     if (!name.trim()) return toast('Enter the influencer name.', 'warn');
     const en = Object.keys(pl).filter(k => pl[k].enabled);
@@ -404,6 +406,7 @@ function InfluencerModal({ pr, inf }) {
     ${Object.keys(pl).some(k => pl[k].enabled) ? html`<p className="t3 xs">${social ? 'Fetch reads followers and the engagement rate from the public profile: average likes and comments of recent posts ÷ followers. You can type over any value; edited values are marked "manual" for the agency only, and later refreshes keep them.' : HOSTED ? 'Followers and engagement rate are entered by hand. Automatic lookup starts once the Apify token is added to the server.' : 'Followers and engagement rate are entered by hand; automatic lookup from Instagram and TikTok is not connected yet.'}</p>` : null}
     <div className="field"><span>Creator type</span><div className="opt-list">${Object.entries(TIERS).map(([k, v]) => html`<button key=${k} type="button" className="opt" aria-pressed=${effTier === k} onClick=${() => { setTouched(true); setTier(k); }}>${v.label}<span className="t3 xs">${v.range}</span></button>`)}</div>
       ${suggested ? html`<small>${suggested === 'above' ? 'Over 100K followers: outside nano and micro. Choose the tier this creator counts toward.' : 'Suggested from followers: ' + TIERS[suggested].label + '.'}</small>` : null}</div>
+    ${outOfScope ? html`<div className="banner warn" id="inf-tier-scope"><div className="b-body small">${TIERS[effTier].label}s are not in this project's scope (${scopeTiers.map(c => plural(+c.count, TIERS[c.tier].short.toLowerCase() + ' creator')).join(', ')}). You can still add this creator; they are shown as "not in scope" under Remaining deliverables.</div></div>` : null}
   <//>`;
 }
 
@@ -457,6 +460,12 @@ function MatchTab({ pr, infs, m }) {
 }
 
 /* ---------- content review ---------- */
+// Customers (and the customer preview of a view-only agency member) without approval rights see why there are no buttons.
+function ViewOnlyNote({ pid, what }) {
+  const { role } = useCtx();
+  if (!role.asCustomer || role.canApprove(pid)) return null;
+  return html`<p className="t3 small view-only-note">You have view-only access to this account.${what ? ' To ' + what + ', ask an admin of your team for edit access.' : ''}</p>`;
+}
 function ReviewTab({ pr, infs }) {
   const { role, openModal } = useCtx();
   const [filter, setFilter] = useState('all');
@@ -479,6 +488,7 @@ function ReviewTab({ pr, infs }) {
   const resolve = (i, a, cid) => act(async () => { await dbx.update('influencers', i.id, { assignments: { [a.id]: { review: { comments: { [cid]: { resolved: true, resolvedBy: store.me.id || null, resolvedAt: nowIso() } } } } } }); logEvent('preview.resolve', Object.assign({ ref: a.id, refName: i.name, text: 'Resolved a comment on ' + dLabel(a.platform, a.type) + ' by ' + i.name }, ctx)); });
   const filters = [['all', 'All'], ['submitted', 'Awaiting customer'], ['changes', 'Changes requested'], ['none', 'Not submitted'], ['approved', 'Approved']];
   return html`<div className="stack">
+    <${ViewOnlyNote} pid=${pr.partnershipId} what="approve or comment on content"/>
     <div className="seg" role="group" aria-label="Filter">${filters.map(([k, l]) => html`<button key=${k} aria-pressed=${filter === k} onClick=${() => setFilter(k)}>${l} <span className="mono t3">${counts[k]}</span></button>`)}</div>
     <div className="tbl-wrap"><table className="tbl stk" id="review-table"><thead><tr><th>Influencer</th><th>Deliverable</th><th>Status</th><th>Preview</th><th className="r">Actions</th></tr></thead><tbody>
       ${shown.map(({ i, a, rs }) => { const rv = a.review || {}; const vers = cmtList(rv.versions); const curV = (rv.versions || {})[rv.current]; const url = curV && safeUrl(curV.url); const cms = cmtList(rv.comments); const isOpen = openId === a.id || commenting === a.id; return html`<${Fragment} key=${a.id}><tr className=${isOpen ? 'sel' : ''}>
@@ -516,10 +526,26 @@ function PreviewModal({ inf, a, pr }) {
 }
 
 /* ---------- content submission ---------- */
+// Partner_Brands_Project_handle_Platform-Type_YYYYMMDD.ext, at most SHOT_MAX characters (project part at most 40):
+// the longest of partnership, brands, project and handle is shortened first, none below 8. Room for a _2 … _99 suffix is
+// always kept, so a second piece of the same creator, type and day gets the same name plus _2 and never becomes a new
+// version of another piece's screenshot.
+const SHOT_MAX = 100, SHOT_PROJECT_MAX = 40, SHOT_PART_MIN = 8;
 function shotName(p, pr, inf, a, dateStr, ext) {
   const bi = brandIndex(p); const brands = (pr.brandIds || []).map(b => bi[b] ? slug(bi[b].name) : null).filter(Boolean).join('-') || 'Brand';
   const handle = handleSlug((inf.platforms[a.platform] || {}).handle || inf.name);
-  return [slug(p.name), brands, slug(pr.name), handle, PLATFORMS[a.platform].short + '-' + (TYPE_LABEL[a.type] || a.type), String(dateStr || todayStr()).replace(/-/g, '')].join('_') + '.' + (ext || 'png');
+  const fixed = [PLATFORMS[a.platform].short + '-' + (TYPE_LABEL[a.type] || a.type), String(dateStr || todayStr()).replace(/-/g, '')];
+  const dotExt = '.' + (ext || 'png'), budget = SHOT_MAX - 3 - dotExt.length;
+  const parts = [slug(p.name), brands, slug(pr.name).slice(0, SHOT_PROJECT_MAX), handle];
+  const len = () => parts.concat(fixed).join('_').length;
+  while (len() > budget) {
+    let k = 0; parts.forEach((x, i) => { if (x.length > parts[k].length) k = i; });
+    if (parts[k].length <= SHOT_PART_MIN) break;
+    parts[k] = parts[k].slice(0, Math.max(SHOT_PART_MIN, parts[k].length - (len() - budget))).replace(/[-._]+$/, '');
+  }
+  const base = parts.concat(fixed).join('_');
+  const taken = n => store.files.some(f => f.name === n && f.projectId === pr.id && f.folder === FOLDERS.shots && f.status !== 'purged' && f.assignmentId !== a.id);
+  for (let i = 1; ; i++) { const n = base + (i > 1 ? '_' + i : '') + dotExt; if (!taken(n)) return n; }
 }
 function SubmissionTab({ pr, p, infs }) {
   const { role, openModal } = useCtx();
@@ -529,6 +555,7 @@ function SubmissionTab({ pr, p, infs }) {
   const live = items.filter(x => x.a.publish && x.a.publish.status === 'live').length;
   return html`<div className="stack">
     <p className="t2 small"><span className="num">${live}</span> of <span className="num">${items.length}</span> approved pieces are posted.${waiting ? ' ' + waiting + ' more still in review.' : ''} Screenshots are named, checksummed and filed in ${pr.name} / ${FOLDERS.shots}.</p>
+    <${ViewOnlyNote} pid=${pr.partnershipId}/>
     <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Influencer</th><th>Deliverable</th><th>Post</th><th>Screenshot</th><th className="r"></th></tr></thead><tbody>
       ${items.map(({ i, a }) => { const pub = a.publish || {}; const isLive = pub.status === 'live'; const u = safeUrl(pub.url); return html`<tr key=${a.id}>
         <td><strong>${i.name}</strong><div className="stat">@${(i.platforms[a.platform] || {}).handle || ''}</div></td><td><${Plat} p=${a.platform} t=${a.type}/></td>

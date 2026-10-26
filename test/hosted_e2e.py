@@ -259,6 +259,10 @@ def main():
             st = state(A)
             perf = [a.get('perf') for v in st['influencers'].values() for a in (v.get('assignments') or {}).values() if a.get('perf')]
             check(len(perf) == 2 and all(p['views'] == 88000 for p in perf) and all('public' in p['source'] for p in perf), 'views/likes read from the live posts and saved')
+            shr = {a['platform']: (a.get('perf') or {}).get('shares') for v in st['influencers'].values() for a in (v.get('assignments') or {}).values() if a.get('perf')}
+            check(shr.get('instagram') == 35 and shr.get('tiktok') == 60, 'PH-018: Instagram shares read from sharesCount (35), TikTok from shareCount (60): %s' % shr)
+            A.wait_for_selector('table.tbl tr:has-text("Elif Yilmaz") td:text-is("4,255")', timeout=10000)
+            check(True, 'PH-018: Performance creators table counts the Instagram shares in engagements (4,100 + 120 + 35 = 4,255)')
             A.locator('tr:has-text("Elif Yilmaz") button:has-text("Update data")').click()
             A.locator('.modal button:has-text("Add files") + input[type=file]').set_input_files([str(FIX / 'report.xlsx'), str(FIX / 'shot0.png')])
             btn(A, 'Read with Claude').click(); toast(A, 'Numbers read', 20000)
@@ -567,10 +571,18 @@ def main():
             uid = api(E, '/api/me')['body']['id']
             r = api(E, '/api/db/op', {'op': 'update', 'path': 'influencers/' + ADA, 'data': {'comments': {'cview1': {'text': 'Looks good', 'by': uid, 'at': '2026-10-14T12:00:00.000Z'}}}})
             check(r['status'] == 403, 'brand member with View cannot comment or approve (%s)' % r['status'])
+            nav(E, '#j.' + PRID + '.review'); E.wait_for_selector('#review-table')
+            check(E.locator('.view-only-note:has-text("view-only access")').count() == 1 and E.locator('#review-table button:has-text("Approve"), #review-table button:has-text("Comment")').count() == 0, 'PH-016: brand View member sees the view-only note on Content review, no Approve/Comment buttons')
+            shot(E, 'h16b_brand_view_review')
+            nav(E, '#j.' + PRID + '.submission'); E.wait_for_selector('text=approved pieces are posted')
+            check(E.locator('.view-only-note').count() == 1, 'PH-016: the same note on Content submission')
+            nav(E, '#p.' + PID + '.members'); E.wait_for_selector('text=Customer members')
             B.select_option('select[aria-label="Access for emre@unilever.test"]', 'edit'); toast(B, 'Access set to Edit')
             E.wait_for_selector('.badge:has-text("Member · Edit")', timeout=12000)
             r = api(E, '/api/db/op', {'op': 'update', 'path': 'influencers/' + ADA, 'data': {'comments': {'cedit1': {'text': 'Looks good', 'by': uid, 'at': '2026-10-14T12:00:00.000Z'}}}})
             check(r['status'] == 200, 'after the switch to Edit the brand member can comment (%s)' % r['status'])
+            nav(E, '#j.' + PRID + '.review'); E.wait_for_selector('#review-table')
+            check(E.locator('.view-only-note').count() == 0, 'PH-016: no view-only note once the member has Edit')
             check('finance' not in state(E), 'brand members never receive finance')
             h = api(A, '/api/health')['body']
             check(h['ok'] and h['errors24h'] == 0 and h['storage']['files'] >= 6, 'health endpoint: no server errors, %s files stored' % h['storage']['files'])
@@ -648,8 +660,12 @@ def main():
             btn(A, 'Save changes').click(); A.wait_for_selector('#scope-impact.warn')
             check('the 6 unsent pieces will be removed' in A.locator('#scope-impact').inner_text(), 'removing a type with only unsent pieces asks for confirmation')
             btn(A, 'Confirm and save').click(); toast(A, 'Project updated')
-            sc = state(A)
-            left = [a for a in sc['influencers']['scopeci']['assignments'].values() if a['platform'] == 'instagram' and not a.get('removed')]
+            # A 'Project updated' toast from the previous scope edit can still be on screen, so poll the server until the save lands.
+            for _ in range(20):
+                sc = state(A)
+                left = [a for a in sc['influencers']['scopeci']['assignments'].values() if a['platform'] == 'instagram' and not a.get('removed')]
+                if not left and [c['type'] for c in sc['projects']['scopec']['content']] == ['post']: break
+                A.wait_for_timeout(250)
             check([c['type'] for c in sc['projects']['scopec']['content']] == ['post'] and not left, 'confirmed: Instagram left the scope and its 6 unsent pieces were removed')
             # PH-014: quantity 0 or a decimal is refused, not saved as 1.
             nav(A, '#p.' + PID + '.projects'); btn(A, 'New project').first.click(); A.wait_for_selector('.modal')
@@ -665,6 +681,61 @@ def main():
             btn(A, 'Create project').click(); A.wait_for_selector('h1:has-text("Zero Check")')
             zc = [v for v in state(A)['projects'].values() if v['name'] == 'Zero Check']
             check(zc and zc[0]['content'][0]['qty'] == 3, 'a valid quantity still saves as typed (3)')
+
+            print('18. Short screenshot names, creator types outside the scope (PH-013, PH-017)', flush=True)
+            sp = state(A)['projects'][PRID]
+            check(any(re.match(r'^Unilever_Vaseline-Elidor_SummerGlow_elif\.yilmaz_IG-Reels_\d{8}\.png$', v['name']) for v in state(A)['files'].values() if v['folder'] == 'Content Screenshots'), 'PH-013: the existing screenshot keeps its name after the project was renamed')
+            LONGP = 'Dove Yaz Işıltısı Güneşli Günlerde Özgüven ve Bakım Çağrısı İçin Sık İçerik Serisi 2026'
+            at = '2026-10-20T10:00:00.000Z'
+            ok1 = api(A, '/api/db/op', {'op': 'set', 'path': 'projects/shotp', 'data': {'name': LONGP, 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': [{'platform': 'instagram', 'type': 'reels', 'qty': 2}], 'creators': [{'tier': 'nano', 'count': 3}], 'status': 'active', 'masterfile': {'created': True, 'status': 'approved', 'round': 1, 'approvedAt': at}, 'createdAt': at}})['status'] == 200
+            asg = {'s%d' % n: {'platform': 'instagram', 'type': 'reels', 'createdAt': '2026-10-2%dT10:00:00.000Z' % n, 'review': {'status': 'approved'}} for n in (1, 2)}
+            ok2 = api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/shotpi', 'data': {'name': 'Sule Caglar', 'partnershipId': PID, 'projectId': 'shotp', 'state': 'approved', 'order': 1, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': 'sule.caglar', 'followers': 48200, 'er': 4}}, 'assignments': asg, 'createdAt': at}})['status'] == 200
+            check(ok1 and ok2, 'project with a %d-character Turkish name, nano-only scope and a micro creator with 2 approved Reels' % len(LONGP))
+            nav(A, '#j.shotp.submission'); A.wait_for_selector('button:has-text("Content submitted")')
+            for k in range(2):
+                A.wait_for_function('n => Array.from(document.querySelectorAll("tbody button")).filter(b => b.textContent.includes("Content submitted")).length === n', arg=2 - k, timeout=10000)
+                A.locator('tr:has-text("Sule Caglar") button:has-text("Content submitted")').first.click()
+                A.fill('#pub-url', 'https://www.instagram.com/reel/sc%d/' % k)
+                A.locator('.modal input[type=file]').set_input_files(str(FIX / 'shot1.png')); A.wait_for_selector('.modal img[alt="Screenshot preview"]')
+                btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=20000)
+            A.wait_for_timeout(500)
+            sf = sorted([v for v in state(A)['files'].values() if v['folder'] == 'Content Screenshots' and v.get('projectId') == 'shotp'], key=lambda v: v['createdAt'])
+            nm = [v['name'] for v in sf]
+            check(len(nm) == 2 and all(len(n) <= 100 for n in nm) and all(len(n.split('_')[2]) <= 40 for n in nm), 'PH-013: screenshot names at most 100 characters, project part at most 40: %s' % [(n, len(n)) for n in nm])
+            check(len(nm) == 2 and all(re.match(r'^Unilever_Vaseline-Elidor_DoveYaz[A-Za-z0-9]+_sule\.caglar_IG-Reels_\d{8}(_2)?\.png$', n) for n in nm), 'PH-013: names keep partnership, brands, handle, type and date, Turkish letters cleaned')
+            check(len(nm) == 2 and not nm[0].endswith('_2.png') and nm[1] == nm[0][:-4] + '_2.png', 'PH-013: second piece of the same creator, type and day gets _2 instead of replacing the first screenshot')
+            check(all(v.get('version', 1) == 1 and v['verified'] for v in sf), 'PH-013: both screenshots are separate first versions, verified')
+            A.locator('tr:has-text("Sule Caglar") button:has-text("Edit")').first.click()
+            A.locator('.modal input[type=file]').set_input_files(str(FIX / 'shot0.png')); A.wait_for_selector('.modal img[alt="Screenshot preview"]')
+            btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=20000); A.wait_for_timeout(500)
+            sf2 = [v for v in state(A)['files'].values() if v['folder'] == 'Content Screenshots' and v.get('projectId') == 'shotp']
+            new_ = max(sf2, key=lambda v: v['createdAt'])
+            check(len(sf2) == 3 and new_['name'] in nm and new_.get('version') == 2, 'PH-013: replacing a screenshot keeps its own name as version 2 (%s v%s)' % (new_['name'], new_.get('version')))
+            shot(A, 'h18a_short_names')
+            # PH-017: the micro creator in a nano-only scope is shown on its own row, for the agency and the brand.
+            dl_ = A.locator('#deliv-table tr:has-text("Microinfluencer")')
+            check(dl_.count() == 1 and 'not in scope' in dl_.inner_text() and '1' in dl_.inner_text(), 'PH-017: Remaining deliverables lists Microinfluencer "not in scope" (%s)' % (dl_.inner_text().replace('\n', ' ') if dl_.count() else None))
+            check(A.locator('#deliv-table tr:has-text("Nanoinfluencer")').count() == 1, 'PH-017: the nano target row stays')
+            nav(B, '#j.shotp'); B.wait_for_selector('#deliv-table')
+            check(B.locator('#deliv-table tr:has-text("Microinfluencer"):has-text("not in scope")').count() == 1, 'PH-017: the brand sees the same "not in scope" row')
+            shot(B, 'h18b_brand_not_in_scope')
+            ok3 = api(A, '/api/db/op', {'op': 'set', 'path': 'projects/tierp', 'data': {'name': 'Tier Check', 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': [{'platform': 'instagram', 'type': 'reels', 'qty': 3}], 'creators': [{'tier': 'nano', 'count': 3}], 'status': 'active', 'masterfile': {'created': True, 'status': 'draft', 'round': 0, 'createdAt': at}, 'createdAt': at}})['status'] == 200
+            nav(A, '#j.tierp.masterfile'); A.wait_for_selector('button:has-text("Add influencer")')
+            btn(A, 'Add influencer').click(); A.wait_for_selector('.modal')
+            A.fill('#inf-name', 'Micro Tester')
+            if A.locator('#inf-h-instagram').count() == 0:
+                A.locator('.modal .opt:has-text("Instagram")').click()
+            A.fill('#inf-h-instagram', 'micro.tester'); A.fill('#inf-f-instagram', '48200')
+            A.wait_for_selector('#inf-tier-scope')
+            wtxt = A.locator('#inf-tier-scope').inner_text()
+            check('Microinfluencers are not in this project' in wtxt and '3 nano creators' in wtxt, 'PH-017: adding a micro creator to a nano-only scope shows a warning in the window: %s' % wtxt[:140])
+            shot(A, 'h18c_tier_warning')
+            A.locator('.modal .opt:has-text("Nanoinfluencer")').click()
+            check(A.locator('#inf-tier-scope').count() == 0, 'PH-017: no warning for a creator type in the scope')
+            A.locator('.modal .opt:has-text("Microinfluencer")').click()
+            btn(A, 'Add to masterfile').click(); A.wait_for_selector('.modal', state='detached', timeout=10000)
+            check(any(v['name'] == 'Micro Tester' and v['tier'] == 'micro' and v['projectId'] == 'tierp' for v in state(A)['influencers'].values()), 'PH-017: the warning does not block, the micro creator is added')
+            check(A.locator('#mf-head .badge:has-text("not in scope"), .badge:has-text("Micro 1 · not in scope")').count() >= 1, 'PH-017: masterfile header shows Micro 1 · not in scope')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):

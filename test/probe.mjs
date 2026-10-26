@@ -75,7 +75,7 @@ async function apify() {
   if (postUrl) {
     const p = await run('apify~instagram-scraper', { directUrls: [postUrl], resultsType: 'posts', resultsLimit: 1, addParentData: false }, 120);
     const it = Array.isArray(p.body) ? p.body[0] : null;
-    row('Apify', 'Instagram post metrics', 1, it && it.likesCount !== undefined ? 1 : 0, [p.ms], ok2(p) ? '' : p.status + ' ' + errOf(p)); if (it) okAll++;
+    row('Apify', 'Instagram post metrics', 1, it && it.likesCount !== undefined ? 1 : 0, [p.ms], ok2(p) ? (it && it.sharesCount !== undefined && it.sharesCount !== null ? 'sharesCount ' + it.sharesCount : 'sharesCount missing') : p.status + ' ' + errOf(p)); if (it) okAll++;
   }
   const vid = (ttItems.find(x => x && x.webVideoUrl) || {}).webVideoUrl;
   if (vid) {

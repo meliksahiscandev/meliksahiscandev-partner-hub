@@ -706,9 +706,9 @@ export class Workspace extends DurableObject {
     try {
       if (platform === 'instagram') {
         const items = await this.apify('apify~instagram-scraper', { directUrls: [u.href], resultsType: 'posts', resultsLimit: 1, addParentData: false });
-        if (STUB) return json(stubPost(platform));
-        const it = items[0]; if (!it || it.error) return fail('not_found', 'The post could not be read (it may be private or removed).', 404);
-        return json({ platform, metrics: { views: num(it.videoPlayCount, it.videoViewCount, it.igPlayCount), likes: num(it.likesCount), comments: num(it.commentsCount), shares: null, saves: null }, postedAt: it.timestamp || null, owner: it.ownerUsername || '', source: 'apify:instagram-scraper' });
+        const it = STUB ? Object.assign({ timestamp: nowIso() }, STUB_IG_POST) : items[0]; if (!it || it.error) return fail('not_found', 'The post could not be read (it may be private or removed).', 404);
+        // Apify added sharesCount in Oct 2026; reshareCount is deprecated (always empty) and not read. Missing stays null ("—").
+        return json({ platform, metrics: { views: num(it.videoPlayCount, it.videoViewCount, it.igPlayCount), likes: num(it.likesCount), comments: num(it.commentsCount), shares: num(it.sharesCount), saves: null }, postedAt: it.timestamp || null, owner: it.ownerUsername || '', source: STUB ? 'stub' : 'apify:instagram-scraper' });
       }
       const items = await this.apify('clockworks~tiktok-scraper', { postURLs: [u.href], resultsPerPage: 1, shouldDownloadVideos: false, shouldDownloadCovers: false, shouldDownloadSubtitles: false });
       if (STUB) return json(stubPost(platform));
@@ -775,7 +775,8 @@ export class Workspace extends DurableObject {
 /* ---------------- stubs for local testing ---------------- */
 const STUB_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 function stubProfile(platform, handle) { return { platform, handle, followers: platform === 'tiktok' ? 23400 : 48200, er: 4.37, posts: 312, fullName: 'Stub ' + handle, sample: 12, source: 'stub' }; }
-function stubPost(platform) { return { platform, metrics: { views: 88000, likes: 4100, comments: 120, shares: platform === 'tiktok' ? 60 : null, saves: platform === 'tiktok' ? 90 : null }, postedAt: nowIso(), owner: 'stub', source: 'stub' }; }
+function stubPost(platform) { return { platform, metrics: { views: 88000, likes: 4100, comments: 120, shares: 60, saves: 90 }, postedAt: nowIso(), owner: 'stub', source: 'stub' }; }
+const STUB_IG_POST = { videoPlayCount: 88000, likesCount: 4100, commentsCount: 120, sharesCount: 35, reshareCount: null, ownerUsername: 'stub' };
 function stubClaude(prompt, images) {
   if (/=== PROJECT PROTOCOL ===/.test(prompt)) return JSON.stringify({ summary: 'Stub project summary written from the protocol (test mode). Protocol marker: ' + (prompt.includes('PROTOCOL-MARKER') ? 'seen' : 'missing') + '.', objective: 'Drive trial of the summer range', deliverables: ['3 Instagram Reels'], timeline: 'June–August', kpis: ['2M views'], mandatories: ['#reklam'] });
   if (/summarize the partnership/.test(prompt)) return JSON.stringify({ headline: 'Stub summary of the partnership', overview: 'Generated without calling Claude (test mode). Images read: ' + (images || 0) + '. Text marker: ' + (prompt.includes('DEBRIEF-MARKER') ? 'seen' : 'missing') + '.', objectives: ['Awareness'], audience: '', key_messages: [], deliverables: [], timeline: '', kpis: [], budget: 'Stub budget line', mandatories: [], restrictions: [], open_questions: [], documents: [] });
