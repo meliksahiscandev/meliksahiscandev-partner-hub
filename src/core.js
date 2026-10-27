@@ -92,7 +92,7 @@ const validEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normEmail(e));
 function parseNum(v) {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return isFinite(v) ? v : null;
-  let s = String(v).trim().replace(/\s/g, '').replace(/%$/, '').replace(/^[₺$€£]|(TL|TRY|USD|EUR|GBP)$/gi, '');
+  let s = String(v).trim().replace(/\s/g, '').replace(/^%|%$/g, '').replace(/^[₺$€£]|(TL|TRY|USD|EUR|GBP)$/gi, '');
   if (!s) return null;
   const m = s.match(/^(-?[0-9.,]+)(k|K|bin|B|m|M|mn|Mn|MN)?$/);
   if (!m) return null;
@@ -320,6 +320,23 @@ function msaState(p) { const ms = msaList(p); return { list: ms, uploaded: ms.fi
 const partnerOf = (s, id) => s.partnerships.find(x => x.id === id);
 const projectsOf = (s, pid) => s.projects.filter(x => x.partnershipId === pid && isActive(x)).sort(byCreated);
 const infsOf = (s, prid) => s.influencers.filter(i => i.projectId === prid && !i.removed).sort((a, b) => (a.order || 0) - (b.order || 0));
+// A removed creator's live pieces stay in the results (Performance, Dashboards, exports), marked "removed creator";
+// pieces that never went live leave with them (Restore brings them back).
+function liveOnly(inf) {
+  const asg = {}; Object.entries(inf.assignments || {}).forEach(([id, a]) => { if (!a.removed && a.publish && a.publish.status === 'live') asg[id] = a; });
+  return Object.keys(asg).length ? Object.assign({}, inf, { assignments: asg, removedLive: true }) : null;
+}
+const resultInfsOf = (s, prid) => infsOf(s, prid).concat(s.influencers.filter(i => i.projectId === prid && i.removed).map(liveOnly).filter(Boolean));
+// A masterfile that had final approval and was reopened to add or replace creators: the work already under way continues.
+const mfReopened = mf => !!mf && mf.status !== 'approved' && !!mf.approvedAt;
+// What a creator's assigned pieces are doing, for the remove dialog and its audit event ("2 live, 1 in review").
+function workOf(inf) {
+  const as = asgList(inf); const isLive = a => !!(a.publish && a.publish.status === 'live');
+  const live = as.filter(isLive).length, approved = as.filter(a => !isLive(a) && reviewState(a).key === 'approved').length;
+  const notStarted = as.filter(a => !isLive(a) && reviewState(a).key === 'none').length, review = as.length - live - approved - notStarted;
+  const text = [[live, 'live'], [review, 'in review'], [approved, 'approved, not posted'], [notStarted, 'not started']].filter(x => x[0]).map(x => x[0] + ' ' + x[1]).join(', ');
+  return { total: as.length, live, review, approved, notStarted, text };
+}
 function asgList(inf) { return Object.entries(inf.assignments || {}).map(([id, a]) => Object.assign({ id }, a)).filter(a => !a.removed).sort(byCreated); }
 function cmtList(obj) { return Object.entries(obj || {}).map(([id, c]) => Object.assign({ id }, c)).sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))); }
 const openChanges = obj => cmtList(obj).filter(c => c.kind === 'change' && !c.resolved);
@@ -373,18 +390,20 @@ function projectMetrics(pr, infs) {
   const counts = { assigned: asgTotal, approved: asgApproved, live: asgLive, data: asgData };
   const ratio = f => totalQty > 0 ? capSum(f) / totalQty : (asgTotal ? counts[f] / asgTotal : 0);
   const of = f => totalQty > 0 ? capSum(f) + ' of ' + totalQty : counts[f] + ' of ' + asgTotal;
-  const tierRow = (tier, count, extra) => ({ tier, count, listed: infs.filter(i => i.tier === tier).length, approved: infs.filter(i => i.tier === tier && i.state === 'approved').length, extra });
+  const listed = infs.filter(i => !i.removedLive);
+  const tierRow = (tier, count, extra) => ({ tier, count, listed: listed.filter(i => i.tier === tier).length, approved: listed.filter(i => i.tier === tier && i.state === 'approved').length, extra });
   const creators = (pr.creators || []).map(c => tierRow(c.tier, +c.count || 0, false));
   // With a creator scope set, creators of a type outside it are listed on their own row ("not in scope") instead of vanishing.
-  if (creators.length) Object.keys(TIERS).forEach(t => { if (!creators.some(c => c.tier === t) && infs.some(i => i.tier === t)) creators.push(tierRow(t, 0, true)); });
+  if (creators.length) Object.keys(TIERS).forEach(t => { if (!creators.some(c => c.tier === t) && listed.some(i => i.tier === t)) creators.push(tierRow(t, 0, true)); });
   const creatorTotal = creators.reduce((t, c) => t + c.count, 0);
   const mf = pr.masterfile || {};
-  const approvedRows = infs.filter(i => i.state === 'approved').length;
+  const approvedRows = listed.filter(i => i.state === 'approved').length;
+  const reopened = mfReopened(mf), waiting = reopened ? listed.filter(i => i.state !== 'approved').length : 0;
   let mfPct = 0;
   if (mf.status === 'approved') mfPct = 1;
-  else if (mf.created) mfPct = Math.min(0.99, approvedRows / Math.max(creatorTotal, infs.length, 1));
+  else if (mf.created) mfPct = Math.min(0.99, approvedRows / Math.max(creatorTotal, listed.length, 1));
   const stages = [
-    { pct: mfPct, detail: mf.status === 'approved' ? 'Final approval ' + fmtDate(mf.approvedAt) : mf.created ? approvedRows + ' of ' + Math.max(creatorTotal, infs.length) + ' creators approved' : 'Masterfile not created' },
+    { pct: mfPct, detail: mf.status === 'approved' ? 'Final approval ' + fmtDate(mf.approvedAt) : reopened ? 'Reopened · ' + plural(waiting, 'creator') + ' waiting' : mf.created ? approvedRows + ' of ' + Math.max(creatorTotal, listed.length) + ' creators approved' : 'Masterfile not created' },
     { pct: ratio('assigned'), detail: of('assigned') + ' assigned' },
     { pct: ratio('approved'), detail: of('approved') + ' previews approved' },
     { pct: ratio('live'), detail: of('live') + ' posted' },
@@ -399,10 +418,10 @@ function projectMetrics(pr, infs) {
   const asgCapped = totalQty > 0 ? capSum('assigned') : asgTotal;
   return {
     targets: targets.concat(Object.values(extra)), totalQty, creators, creatorTotal, stages, overall,
-    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, asgCapped, asgOver: asgTotal - asgCapped, outsideOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
+    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, reopened, waiting, asgCapped, asgOver: asgTotal - asgCapped, outsideOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
     delivered: totalQty > 0 ? capSum('live') : asgLive, remaining: totalQty > 0 ? Math.max(0, totalQty - capSum('live')) : Math.max(0, asgTotal - asgLive),
-    pendingRows: mf.status === 'in_review' ? infs.filter(i => i.state === 'pending').length : 0,
-    changeRows: infs.filter(i => openChanges(i.comments).length > 0).length,
+    pendingRows: mf.status === 'in_review' ? listed.filter(i => i.state === 'pending').length : 0,
+    changeRows: listed.filter(i => openChanges(i.comments).length > 0).length,
   };
 }
 
@@ -415,7 +434,8 @@ function stageText(m, short) {
     const far = m.stages[m.furthestIdx];
     return short ? (m.furthestIdx + 1) + ' · ' + far.label + ' under way · ' + cur.label + ' open' : 'Stage ' + (m.furthestIdx + 1) + ' of 5 · ' + far.label + ' under way · still open: ' + cur.label + ' (' + cur.detail + ')';
   }
-  return short ? (m.currentIdx + 1) + ' · ' + cur.label : 'Stage ' + (m.currentIdx + 1) + ' of 5 · ' + cur.label;
+  const note = m.reopened && m.currentIdx === 0 ? ' · ' + cur.detail : '';
+  return short ? (m.currentIdx + 1) + ' · ' + cur.label + note : 'Stage ' + (m.currentIdx + 1) + ' of 5 · ' + cur.label + note;
 }
 const maxFollowers = plats => Math.max(0, ...Object.values(plats || {}).filter(x => x && x.enabled !== false).map(x => +x.followers || 0));
 // A tier contradicts the follower count when it falls in the other tier's range (nano 1K–10K, micro 10K–100K).

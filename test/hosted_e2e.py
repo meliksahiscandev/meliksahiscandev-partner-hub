@@ -35,6 +35,10 @@ def make_fixtures():
     ws.append(['Deniz Nano', '@deniz.nano', '34,9B', '3,1', None, None, None, 'nano'])
     ws.append(['Ada K.', 'https://www.instagram.com/ADA.KAYA/', None, None, None, None, None, None])
     wb.save(FIX / 'creators_tier.xlsx')
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(['Name', 'Instagram', 'Instagram followers', 'Instagram ER %'])
+    ws.append(['Pct Er', '@pct.er', '25.000', '%3,8'])
+    wb.save(FIX / 'creators_pct.xlsx')
 
 def main():
     make_fixtures()
@@ -736,6 +740,108 @@ def main():
             btn(A, 'Add to masterfile').click(); A.wait_for_selector('.modal', state='detached', timeout=10000)
             check(any(v['name'] == 'Micro Tester' and v['tier'] == 'micro' and v['projectId'] == 'tierp' for v in state(A)['influencers'].values()), 'PH-017: the warning does not block, the micro creator is added')
             check(A.locator('#mf-head .badge:has-text("not in scope"), .badge:has-text("Micro 1 · not in scope")').count() >= 1, 'PH-017: masterfile header shows Micro 1 · not in scope')
+
+            print('19. Reopened masterfile keeps the plan, removed creators keep their results, %4,37 (PH-021, PH-022, PH-020)', flush=True)
+            sp = state(A)['projects'][PRID]
+            at = '2026-10-20T10:00:00.000Z'
+            okp = api(A, '/api/db/op', {'op': 'set', 'path': 'projects/reop', 'data': {'name': 'Reopen Check', 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': [{'platform': 'instagram', 'type': 'reels', 'qty': 4}], 'creators': [{'tier': 'micro', 'count': 3}], 'status': 'active', 'masterfile': {'created': True, 'status': 'approved', 'round': 2, 'approvedAt': at}, 'createdAt': at}})['status'] == 200
+            def rinf(iid, name, handle, order, asg):
+                return api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/' + iid, 'data': {'name': name, 'partnershipId': PID, 'projectId': 'reop', 'state': 'approved', 'order': order, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': handle, 'followers': 30000, 'er': 4}}, 'assignments': asg, 'createdAt': at}})['status'] == 200
+            ok_a = rinf('reopa', 'Ayla Demir', 'ayla.demir', 1, {'a1': {'platform': 'instagram', 'type': 'reels', 'createdAt': at, 'review': {'status': 'approved'}, 'publish': {'status': 'live', 'url': 'https://www.instagram.com/reel/ay1/'}, 'perf': {'views': 50000, 'likes': 900}}, 'a2': {'platform': 'instagram', 'type': 'reels', 'createdAt': '2026-10-21T10:00:00.000Z', 'review': {'status': 'submitted'}}})
+            ok_b = rinf('reopb', 'Bora Tan', 'bora.tan', 2, {'b1': {'platform': 'instagram', 'type': 'reels', 'createdAt': at, 'review': {'status': 'approved'}, 'publish': {'status': 'live', 'url': 'https://www.instagram.com/reel/bo1/'}, 'perf': {'views': 88000, 'likes': 1200}}})
+            check(okp and ok_a and ok_b, 'approved masterfile (round 2) with 2 creators, 2 live Reels with data and 1 in review')
+            nav(A, '#j.reop.masterfile'); A.wait_for_selector('button:has-text("Reopen for changes")')
+            btn(A, 'Reopen for changes').click(); A.wait_for_selector('.modal')
+            check('stay as they are' in A.locator('.modal').inner_text() and 'round 3' in A.locator('.modal').inner_text(), 'PH-021: reopen dialog says the plan stays and names round 3')
+            A.locator('.modal button:has-text("Reopen")').click(); A.wait_for_selector('.modal', state='detached')
+            A.wait_for_selector('button:has-text("Add influencer")')
+            mf = state(A)['projects']['reop']['masterfile']
+            check(mf['status'] == 'in_review' and mf['round'] == 3 and mf.get('roundOpen') is True and mf.get('approvedAt') == at, 'PH-021: reopening opens round 3 and keeps the earlier approval date (%s)' % {k: mf.get(k) for k in ('status', 'round', 'roundOpen')})
+            # PH-020: a Turkish percent sign in front of the ER is read, stored as typed by hand.
+            btn(A, 'Add influencer').click(); A.wait_for_selector('.modal')
+            A.fill('#inf-name', 'Ceren Ok')
+            if A.locator('#inf-h-instagram').count() == 0:
+                A.locator('.modal .opt:has-text("Instagram")').click()
+            A.fill('#inf-h-instagram', 'ceren.ok'); A.fill('#inf-f-instagram', '31.000'); A.fill('#inf-e-instagram', '%4,37')
+            btn(A, 'Add to masterfile').click(); A.wait_for_selector('.modal', state='detached', timeout=10000)
+            cer = [v for v in state(A)['influencers'].values() if v['name'] == 'Ceren Ok']
+            ig_ = cer[0]['platforms']['instagram'] if cer else {}
+            check(cer and ig_.get('er') == 4.37 and ig_.get('erSource') == 'manual' and cer[0]['state'] == 'draft', 'PH-020: ER "%%4,37" accepted and stored as 4.37, manual (%s)' % ig_.get('er'))
+            btn(A, 'Add influencer').click(); A.wait_for_selector('.modal')
+            A.fill('#inf-name', 'Bad Er')
+            if A.locator('#inf-h-instagram').count() == 0:
+                A.locator('.modal .opt:has-text("Instagram")').click()
+            A.fill('#inf-h-instagram', 'bad.er'); A.fill('#inf-e-instagram', 'yüksek'); btn(A, 'Add to masterfile').click()
+            toast(A, 'Use a number like 4,37 or %4,37')
+            check(True, 'PH-020: an unreadable ER explains the format with an example')
+            btn(A, 'Cancel').click(); A.wait_for_selector('.modal', state='detached')
+            # PH-021: the match page stays open with the plan; the new creator waits.
+            nav(A, '#j.reop.match'); A.wait_for_selector('#match-reopened')
+            check('1 creator awaiting approval' in A.locator('#match-reopened').inner_text(), 'PH-021: match page open while reopened, banner counts 1 creator awaiting approval')
+            check(A.locator('select[aria-label="Content to assign to Ayla Demir"]').count() == 1 and A.locator('select[aria-label="Content to assign to Bora Tan"]').count() == 1, 'PH-021: approved creators keep their plan and can be assigned')
+            cr = A.locator('tr:has-text("Ceren Ok")')
+            check(cr.count() == 1 and 'awaiting approval' in cr.inner_text() and cr.locator('select').count() == 0, 'PH-021: the new creator is listed as awaiting approval, without assign controls')
+            A.select_option('select[aria-label="Content to assign to Bora Tan"]', 'instagram:reels')
+            A.locator('tr:has-text("Bora Tan") button:has-text("Assign")').click(); toast(A, 'assigned to Bora Tan')
+            check(len(state(A)['influencers']['reopb']['assignments']) == 2, 'PH-021: assigning while reopened is saved')
+            line = A.locator('#stage-line').inner_text()
+            check('Stage 1 of 5' not in line and 'Reopened · 1 creator waiting' in line, 'PH-021: agency progress card is not "Stage 1" and says reopened (%s)' % line)
+            shot(A, 'h19a_match_reopened')
+            nav(B, '#j.reop.masterfile'); B.wait_for_selector('#stage-line')
+            bline = B.locator('#stage-line').inner_text()
+            check('Stage 1 of 5' not in bline and 'Reopened · 1 creator waiting' in bline, 'PH-021: brand progress card is not "Stage 1" and says reopened (%s)' % bline)
+            B.wait_for_selector('text=round 3')
+            check(B.locator('.badge:has-text("round 3")').count() == 1, 'PH-021: brand sees round 3 right after reopening')
+            check(B.locator('#mf-count').inner_text().startswith('2 creators'), 'PH-021: brand creator count only counts rows it sees (%s)' % B.locator('#mf-count').inner_text())
+            nav(B, '#j.reop.match'); B.wait_for_selector('#match-reopened')
+            check(B.locator('tr:has-text("Ayla Demir")').count() == 1 and B.locator('tr:has-text("Ceren Ok")').count() == 0, 'PH-021: brand sees the plan; the unsent draft stays hidden')
+            shot(B, 'h19b_brand_match_reopened')
+            # PH-022: removing a creator with live content keeps the brand's results.
+            nav(B, '#j.reop.performance'); B.wait_for_selector('.kpi:has-text("Views")')
+            before = (B.locator('.kpi:has-text("Live content") .v').inner_text(), B.locator('.kpi:has-text("Views") .v').first.inner_text())
+            nav(A, '#j.reop.masterfile'); A.wait_for_selector('button[aria-label="Remove Bora Tan"]')
+            A.locator('button[aria-label="Remove Bora Tan"]').click(); A.wait_for_selector('.modal')
+            body = A.locator('.modal').inner_text()
+            check('2 assigned pieces (1 live, 1 not started)' in body and 'removed creator' in body, 'PH-022: remove dialog counts the pieces and says live results stay: %s' % body.replace('\n', ' ')[:200])
+            A.locator('.modal button:has-text("Remove")').last.click(); A.wait_for_selector('.modal', state='detached')
+            A.wait_for_timeout(600)
+            check(state(A)['influencers']['reopb'].get('removed') is True, 'PH-022: creator removed on the server')
+            evs = [e for d in state(A).get('audit', {}).values() for e in (d.get('events') or {}).values() if e.get('act') == 'influencer.remove' and e.get('refName') == 'Bora Tan']
+            check(evs and (evs[-1].get('meta') or {}).get('live') == 1 and '1 live' in evs[-1]['text'], 'PH-022: influencer.remove event carries the piece counts')
+            B.wait_for_timeout(800); nav(B, '#j.reop.performance'); B.wait_for_selector('.kpi:has-text("Views")')
+            after = (B.locator('.kpi:has-text("Live content") .v').inner_text(), B.locator('.kpi:has-text("Views") .v').first.inner_text())
+            check(before == after and before[0] == '2', 'PH-022: brand Live content and Views unchanged after the removal (%s → %s)' % (before, after))
+            check(B.locator('tr:has-text("Bora Tan") .badge:has-text("removed creator")').count() >= 1, 'PH-022: brand Performance marks Bora Tan as removed creator')
+            shot(B, 'h19c_brand_perf_removed')
+            nav(B, '#d.j-reop'); B.wait_for_selector('#dash-creators')
+            check(B.locator('#dash-creators tr:has-text("Bora Tan") .badge:has-text("removed creator")').count() == 1, 'PH-022: brand dashboard keeps Bora Tan, marked removed creator')
+            check('138K' == B.locator('.kpi:has-text("Views") .v').first.inner_text(), 'PH-022: dashboard views still count both live Reels (%s)' % B.locator('.kpi:has-text("Views") .v').first.inner_text())
+            shot(B, 'h19d_brand_dash_removed')
+            # Restore brings the creator back with the plan, not as a draft.
+            nav(A, '#j.reop.masterfile'); A.wait_for_selector('button:has-text("Show removed creators")')
+            btn(A, 'Show removed creators (1)').click(); A.locator('tr:has-text("Bora Tan") button:has-text("Restore")').click()
+            toast(A, 'Creator restored with their content')
+            rb = state(A)['influencers']['reopb']
+            check(rb.get('removed') is False and rb['state'] == 'approved' and len([a for a in rb['assignments'].values() if not a.get('removed')]) == 2, 'PH-022: Restore keeps the approval, assignments and live content')
+            # The first submit after reopening stays in round 3.
+            A.locator('button:has-text("Submit for review")').click(); toast(A, 'Masterfile resubmitted')
+            A.wait_for_timeout(500)
+            mf = state(A)['projects']['reop']['masterfile']
+            check(mf['round'] == 3 and mf.get('roundOpen') is False, 'PH-021: submitting after reopening stays in round 3 (%s)' % mf['round'])
+            shot(A, 'h19e_reopen_submitted')
+            # PH-020: an ER written as %3,8 in the Excel list is read and kept as typed, not replaced by Fetch.
+            A.click('#mf-import'); A.wait_for_selector('.modal:has-text("Import influencers")')
+            A.locator('.modal button:has-text("Choose Excel or CSV") + input[type=file]').set_input_files(str(FIX / 'creators_pct.xlsx'))
+            A.wait_for_selector('#imp-table')
+            check(A.locator('#imp-table .badge:has-text("Ready")').count() == 1 and 'not a number' not in A.locator('#imp-table').inner_text(), 'PH-020: import preview reads "%3,8" without a warning')
+            A.click('#imp-run'); A.wait_for_selector('.modal', state='detached', timeout=20000)
+            pe = {}
+            for _ in range(40):
+                pe = next((v for v in state(A)['influencers'].values() if v['name'] == 'Pct Er'), {})
+                if pe and (pe['platforms']['instagram'].get('fetched') or {}).get('followers'): break
+                A.wait_for_timeout(500)
+            pig = pe.get('platforms', {}).get('instagram', {})
+            check(pig.get('er') == 3.8 and pig.get('erSource') == 'manual' and (pig.get('fetched') or {}).get('followers'), 'PH-020: imported ER 3.8 kept as manual after Fetch (%s, %s)' % (pig.get('er'), pig.get('erSource')))
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):

@@ -5,7 +5,7 @@ function attention(s, role) {
   for (const p of parts) {
     const ms = msaState(p); if (!ms.list.length || ms.pending.length) { msaMissing++; firstMsa = firstMsa || p.id; }
     for (const pr of projectsOf(s, p.id)) {
-      const m = projectMetrics(pr, infsOf(s, pr.id));
+      const m = projectMetrics(pr, resultInfsOf(s, pr.id));
       const add = (k, n, tab) => { if (n) { acc[k] += n; first[k] = first[k] || { view: 'project', id: pr.id, tab }; } };
       add('pend', m.pendingRows, 'masterfile'); add('rev', m.asgSubmitted, 'review'); add('chg', m.changeRows, 'masterfile'); add('chg', m.asgChanges, 'review'); add('post', m.asgNotPosted, 'submission'); add('data', m.asgLive - m.asgData, 'performance');
     }
@@ -26,11 +26,11 @@ function Overview() {
   const { s, role, go, openModal } = useCtx();
   const parts = visibleParts(s, role);
   const prs = parts.flatMap(p => projectsOf(s, p.id));
-  const ms = prs.map(pr => projectMetrics(pr, infsOf(s, pr.id)));
+  const ms = prs.map(pr => projectMetrics(pr, resultInfsOf(s, pr.id)));
   const sum = k => ms.reduce((t, m) => t + (m[k] || 0), 0);
   const items = attention(s, role);
   const creatorsApproved = prs.reduce((t, pr) => t + infsOf(s, pr.id).filter(i => i.state === 'approved').length, 0);
-  let views = 0; prs.forEach(pr => infsOf(s, pr.id).forEach(i => asgList(i).forEach(a => { views += perfOf(a).views || 0; })));
+  let views = 0; prs.forEach(pr => resultInfsOf(s, pr.id).forEach(i => asgList(i).forEach(a => { views += perfOf(a).views || 0; })));
   const loading = !s.loaded.partnerships || !s.loaded.projects;
   return html`<${Fragment}>
     <${PageHead} eyebrow=${role.asCustomer ? 'Customer workspace' : accountName('agency') + ' · agency workspace'} title="Overview" actions=${role.canAgency ? html`<button className="btn btn-primary" onClick=${() => openModal('newPartnership')}><${Icon} n="plus" s=${15}/>New partnership</button>` : null}/>
@@ -58,7 +58,7 @@ function PartnershipTable({ parts }) {
   const { s, go, role, openModal } = useCtx();
   const canDel = role.isAdmin;
   return html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Partnership</th><th>Master agreement</th><th>Brands</th><th className="r">Projects</th><th>Progress</th><th className="r">Overall</th>${canDel ? html`<th className="r" aria-label="Actions"></th>` : null}</tr></thead><tbody>
-    ${parts.map(p => { const ms = msaState(p); const prs = projectsOf(s, p.id); const metrics = prs.map(pr => projectMetrics(pr, infsOf(s, pr.id))); const avg = metrics.length ? metrics.reduce((t, m) => t + m.overall, 0) / metrics.length : 0; const brands = ms.list.flatMap(m => brandList(m)); return html`<tr key=${p.id} className="click" onClick=${() => go({ view: 'partnership', id: p.id })}>
+    ${parts.map(p => { const ms = msaState(p); const prs = projectsOf(s, p.id); const metrics = prs.map(pr => projectMetrics(pr, resultInfsOf(s, pr.id))); const avg = metrics.length ? metrics.reduce((t, m) => t + m.overall, 0) / metrics.length : 0; const brands = ms.list.flatMap(m => brandList(m)); return html`<tr key=${p.id} className="click" onClick=${() => go({ view: 'partnership', id: p.id })}>
       <td><div className="cs"><strong>${p.name}</strong>${p.demo ? html`<span className="xs t3">Example data</span>` : null}</div></td>
       <td>${!ms.list.length ? html`<${Badge} cls="crit">Missing<//>` : ms.pending.length ? html`<${Badge} cls="crit">To be delivered<//>` : html`<${Badge} cls="ok">Uploaded<//>`}</td>
       <td><div className="row" style=${{ gap: '4px' }}>${brands.slice(0, 4).map(b => html`<span key=${b.id} className="tag">${b.name}</span>`)}${brands.length > 4 ? html`<span className="xs t3">+${brands.length - 4}</span>` : null}</div></td>
@@ -258,7 +258,7 @@ function ProjectList({ p }) {
   const prs = projectsOf(s, p.id); const bi = brandIndex(p); const msas = msaList(p);
   if (!prs.length) return html`<${Empty} title="No projects yet" action=${role.canAgency ? html`<button className="btn btn-primary" onClick=${() => openModal('project', { partnershipId: p.id })}><${Icon} n="plus" s=${15}/>New project</button>` : null}>${role.canAgency ? 'A project sits under one master agreement and covers one or more of its brands.' : 'The agency has not opened a project yet.'}<//>`;
   return html`<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Project</th><th>Agreement</th><th>Brands</th><th>Current stage</th><th>Progress</th><th className="r">Overall</th></tr></thead><tbody>
-    ${prs.map(pr => { const m = projectMetrics(pr, infsOf(s, pr.id)); const msa = msas.find(x => x.id === pr.msaId); return html`<tr key=${pr.id} className="click" onClick=${() => go({ view: 'project', id: pr.id })}>
+    ${prs.map(pr => { const m = projectMetrics(pr, resultInfsOf(s, pr.id)); const msa = msas.find(x => x.id === pr.msaId); return html`<tr key=${pr.id} className="click" onClick=${() => go({ view: 'project', id: pr.id })}>
       <td><strong>${pr.name}</strong></td><td>${msa ? html`<span className="row nw" style=${{ gap: '6px' }}>${msa.label}${msa.status !== 'uploaded' ? html`<${Badge} cls="crit">pending<//>` : null}</span>` : '—'}</td>
       <td><div className="row" style=${{ gap: '4px' }}>${(pr.brandIds || []).map(b => bi[b] ? html`<span key=${b} className="tag">${bi[b].name}</span>` : null)}</div></td>
       <td className="small">${stageText(m, true)}</td><td style=${{ minWidth: '120px' }}><${MiniTrack} m=${m}/></td><td className="r num mono">${Math.round(m.overall * 100)}%</td></tr>`; })}

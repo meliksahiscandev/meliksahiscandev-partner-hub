@@ -223,12 +223,13 @@ def main():
                 btn('Add to masterfile').click(); toast_wait(name + ' added')
             add_inf('Elif Yilmaz', ig='https://www.instagram.com/elif.yilmaz/', tt='@elif.tt')
             add_inf('Mert Kaya', ig='@mertkaya', followers='48,2B', er='3,4')
-            add_inf('Zeynep Ak', ig='zeynepak', followers='6200')
+            add_inf('Zeynep Ak', ig='zeynepak', followers='6200', er='% 5,1')
             infs = docs('influencers')
             byname = {v['name']: (k, v) for k, v in infs.items()}
             check(byname['Elif Yilmaz'][1]['platforms']['instagram']['handle'] == 'elif.yilmaz', 'profile URL cleaned to handle')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['followers'] == 48200 and byname['Mert Kaya'][1]['tier'] == 'micro', 'Turkish "48,2B" parsed as 48,200 and tier suggested micro')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['er'] == 3.4, 'decimal comma ER parsed')
+            check(byname['Zeynep Ak'][1]['platforms']['instagram']['er'] == 5.1, 'PH-020: ER typed with a leading percent sign ("% 5,1") read as 5.1')
             # The same account cannot be entered twice in one masterfile (also when editing another row).
             page.locator('button[aria-label="Edit Zeynep Ak"]').click(); page.fill('#inf-h-instagram', 'https://www.instagram.com/MertKaya/'); btn('Save').click()
             page.wait_for_selector('#inf-dup')
