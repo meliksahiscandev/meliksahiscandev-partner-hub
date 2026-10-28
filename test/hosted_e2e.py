@@ -842,6 +842,55 @@ def main():
                 A.wait_for_timeout(500)
             pig = pe.get('platforms', {}).get('instagram', {})
             check(pig.get('er') == 3.8 and pig.get('erSource') == 'manual' and (pig.get('fetched') or {}).get('followers'), 'PH-020: imported ER 3.8 kept as manual after Fetch (%s, %s)' % (pig.get('er'), pig.get('erSource')))
+
+            print('20. Two people edit the same creator at once (PH-024)', flush=True)
+            okc = api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/conc1', 'data': {'name': 'Sule Ozturk', 'partnershipId': PID, 'projectId': 'tierp', 'state': 'draft', 'order': 99, 'tier': 'micro', 'comments': {}, 'assignments': {}, 'createdAt': at,
+                'platforms': {'instagram': {'enabled': True, 'handle': 'sule.oz', 'followers': 15000, 'er': 3.2, 'fSource': 'apify', 'erSource': 'apify', 'fetched': None}, 'tiktok': {'enabled': True, 'handle': 'sule.tt', 'followers': 23400, 'er': 5, 'fSource': 'apify', 'erSource': 'apify', 'fetched': None}}}})['status'] == 200
+            check(okc, 'creator with Instagram and TikTok numbers from Apify seeded')
+            def open_edit(pg):
+                nav(pg, '#j.tierp.masterfile'); pg.wait_for_selector('button[aria-label="Edit Sule Ozturk"]', timeout=12000)
+                pg.locator('button[aria-label="Edit Sule Ozturk"]').click(); pg.wait_for_selector('#inf-f-tiktok')
+            def conc():
+                return state(A)['influencers']['conc1']['platforms']['tiktok']
+            open_edit(A); open_edit(D)
+            A.fill('#inf-f-tiktok', '99000'); btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=10000)
+            D.wait_for_function('() => document.querySelector("#inf-f-tiktok").value === "99000"', timeout=12000)
+            check(D.locator('#inf-remote').count() == 1 and 'TikTok followers' in D.locator('#inf-remote').inner_text(), "PH-024: the second person's open window shows the new followers and says someone else saved")
+            shot(D, 'h20a_concurrent_notice')
+            D.fill('#inf-e-tiktok', '7,1'); btn(D, 'Save').click(); D.wait_for_selector('.modal', state='detached', timeout=10000)
+            D.wait_for_timeout(500); t = conc()
+            check(t['followers'] == 99000 and t['fSource'] == 'manual' and t['er'] == 7.1 and t['erSource'] == 'manual', 'PH-024: both changes stay: followers 99000 (manual) from one person, ER 7.1 from the other (%s)' % {k: t.get(k) for k in ('followers', 'fSource', 'er', 'erSource')})
+            ig = state(A)['influencers']['conc1']['platforms']['instagram']
+            check(ig['followers'] == 15000 and ig['fSource'] == 'apify' and ig['er'] == 3.2, 'PH-024: fields nobody touched keep their values and Apify source')
+            # Even when the other person's window has not heard of the change yet, it sends only its own fields.
+            open_edit(A); open_edit(D)
+            D.route('**/api/db/sync*', lambda r: r.abort())
+            A.fill('#inf-f-instagram', '16500'); btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=10000)
+            D.wait_for_timeout(1500)
+            check(D.input_value('#inf-f-instagram') == '15000', 'PH-024: with sync held back, the second window still shows the old 15000')
+            D.fill('#inf-e-instagram', '3,9'); btn(D, 'Save').click(); D.wait_for_selector('.modal', state='detached', timeout=10000)
+            D.unroute('**/api/db/sync*'); D.wait_for_timeout(600)
+            ig = state(A)['influencers']['conc1']['platforms']['instagram']
+            check(ig['followers'] == 16500 and ig['fSource'] == 'manual' and ig['er'] == 3.9, 'PH-024: a stale window does not write back the old followers (%s, %s, ER %s)' % (ig['followers'], ig['fSource'], ig['er']))
+            # Same field, changed by both: the second save stops and shows the saved value first.
+            open_edit(A); open_edit(D)
+            D.fill('#inf-f-tiktok', '130000')
+            A.fill('#inf-f-tiktok', '120000'); btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=10000)
+            D.wait_for_selector('#inf-remote', timeout=12000)
+            check(D.input_value('#inf-f-tiktok') == '130000', 'PH-024: the field you are typing in is not overwritten by the other save')
+            btn(D, 'Save').click(); D.wait_for_selector('#inf-conflict')
+            ctext = D.locator('#inf-conflict').inner_text()
+            check('changed while you were editing' in ctext and '120,000' in ctext and '130,000' in ctext, 'PH-024: second save warns with the saved value and yours: %s' % ctext.replace('\n', ' ')[:160])
+            D.wait_for_timeout(400)
+            check(conc()['followers'] == 120000 and D.locator('.modal').count() == 1, 'PH-024: nothing was overwritten by the first click; the window stays open')
+            shot(D, 'h20b_concurrent_conflict')
+            btn(D, 'Save').click(); D.wait_for_selector('.modal', state='detached', timeout=10000)
+            D.wait_for_timeout(500); t = conc()
+            check(t['followers'] == 130000 and t['er'] == 7.1, 'PH-024: saving again after the warning keeps yours and the earlier ER (%s, %s)' % (t['followers'], t['er']))
+            # Opening and saving without changes writes nothing.
+            open_edit(A); before_v = state(A)['influencers']['conc1'].get('updatedAt')
+            btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=10000); A.wait_for_timeout(400)
+            check(state(A)['influencers']['conc1'].get('updatedAt') == before_v, 'PH-024: Save without changes writes nothing')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):

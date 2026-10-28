@@ -331,14 +331,54 @@ function ImportInfluencersModal({ pr, p }) {
 }
 const socialOn = () => !!(CAP.hosted && store.features && store.features.apify);
 const shotsOn = () => !!(CAP.hosted && store.features && store.features.screenshots);
+// The edit form as plain values, so the form, the version it was opened from and the latest saved version compare field by field.
+function infForm(inf) {
+  const plat = k => { const x = inf && inf.platforms && inf.platforms[k]; return x ? { enabled: !!x.enabled, handle: x.handle || '', followers: isNum(x.followers) ? String(x.followers) : '', er: isNum(x.er) ? String(x.er) : '', fSource: x.fSource || (isNum(x.followers) ? 'manual' : ''), erSource: x.erSource || (isNum(x.er) ? 'manual' : ''), fetched: x.fetched || null } : { enabled: false, handle: '', followers: '', er: '', fSource: '', erSource: '', fetched: null }; };
+  return { name: inf ? inf.name || '' : '', tier: inf ? inf.tier || '' : '', pl: Object.fromEntries(Object.keys(PLATFORMS).map(k => [k, plat(k)])) };
+}
+const INF_FIELDS = [['name', 'Name'], ['tier', 'Creator type']].concat(...Object.keys(PLATFORMS).map(k => [[k + '.enabled', PLATFORMS[k].label], [k + '.handle', PLATFORMS[k].label + ' username'], [k + '.followers', PLATFORMS[k].label + ' followers'], [k + '.er', PLATFORMS[k].label + ' ER'], [k + '.fetched', PLATFORMS[k].label + ' fetched values']]));
+function infField(f, key) {
+  const [a, b] = key.split('.'); if (!b) return f[a];
+  const v = f.pl[a][b];
+  if (b === 'followers' || b === 'er') { const t = String(v).trim(); return t ? (parseNum(t) === null ? t : parseNum(t)) : null; }
+  if (b === 'handle') return cleanHandle(v, a);
+  if (b === 'fetched') return v ? JSON.stringify(v) : null;
+  return v;
+}
+function infFieldSet(f, key, from) {
+  const [a, b] = key.split('.'); if (!b) { f[a] = from[a]; return; }
+  const src = { followers: ['fSource'], er: ['erSource'] }[b] || [];
+  for (const x of [b].concat(src)) f.pl[a][x] = from.pl[a][x];
+}
+const infShow = (key, v) => v === null || v === '' ? 'empty' : /\.followers$/.test(key) ? fmtInt(v) : /\.er$/.test(key) ? fmtPct(v) : /\.enabled$/.test(key) ? (v ? 'on' : 'off') : key === 'tier' ? (TIERS[v] || {}).label || v : /\.fetched$/.test(key) ? 'new values' : String(v);
 function InfluencerModal({ pr, inf }) {
   const { s, closeModal } = useCtx();
   const [dup, setDup] = useState(null);
-  const blank = { enabled: false, handle: '', followers: '', er: '', fSource: '', erSource: '', fetched: null };
-  const init = k => { const x = inf && inf.platforms && inf.platforms[k]; return x ? { enabled: !!x.enabled, handle: x.handle || '', followers: isNum(x.followers) ? String(x.followers) : '', er: isNum(x.er) ? String(x.er) : '', fSource: x.fSource || (isNum(x.followers) ? 'manual' : ''), erSource: x.erSource || (isNum(x.er) ? 'manual' : ''), fetched: x.fetched || null } : Object.assign({}, blank); };
-  const [name, setName] = useState(inf ? inf.name : '');
-  const [pl, setPl] = useState({ instagram: init('instagram'), tiktok: init('tiktok') });
-  const [tier, setTier] = useState(inf ? inf.tier || '' : '');
+  const start = useMemo(() => infForm(inf), []);
+  const [name, setName] = useState(start.name);
+  const [pl, setPl] = useState(start.pl);
+  const [tier, setTier] = useState(start.tier);
+  // base = the saved version this form is based on, field by field. Fields you have not touched follow the latest saved
+  // version; fields you changed keep their base, so a save sends only your changes and spots edits made by someone else.
+  const base = useRef(start);
+  const cur = inf ? (s.influencers.find(i => i.id === inf.id) || inf) : null;
+  const [remote, setRemote] = useState([]);
+  const [conflict, setConflict] = useState(null);
+  const curKey = cur ? JSON.stringify(infForm(cur)) : '';
+  useEffect(() => {
+    if (!cur) return;
+    const fresh = infForm(cur), b = base.current, mine = { name, tier, pl };
+    const nb = JSON.parse(JSON.stringify(b)), nf = JSON.parse(JSON.stringify(mine)), moved = [];
+    for (const [key, label] of INF_FIELDS) {
+      if (infField(fresh, key) === infField(b, key)) continue;
+      moved.push(label);
+      if (infField(mine, key) === infField(b, key)) infFieldSet(nf, key, fresh);
+      if (infField(mine, key) === infField(b, key) || infField(mine, key) === infField(fresh, key)) infFieldSet(nb, key, fresh);
+    }
+    if (!moved.length) return;
+    base.current = nb; setName(nf.name); setTier(nf.tier); setPl(nf.pl);
+    setRemote(r => Array.from(new Set(r.concat(moved))));
+  }, [curKey]);
   const [touched, setTouched] = useState(!!inf);
   const [busy, setBusy] = useState(false);
   const [fetching, setFetching] = useState({});
@@ -378,13 +418,35 @@ function InfluencerModal({ pr, inf }) {
     setDup(other || null);
     if (other) return;
     const platforms = {}; Object.keys(PLATFORMS).forEach(k => { const x = pl[k]; const f = x.enabled ? parseNum(x.followers) : null, e = x.enabled ? parseNum(x.er) : null; platforms[k] = { enabled: !!x.enabled, handle: x.enabled ? cleanHandle(x.handle, k) : '', followers: f, er: e, fSource: f === null ? null : (x.fSource || 'manual'), erSource: e === null ? null : (x.erSource || 'manual'), fetched: x.enabled ? x.fetched || null : null }; });
-    setBusy(true);
     let ok;
     if (inf) {
-      const data = { name: name.trim(), platforms, tier: effTier, updatedAt: nowIso() }; if (inf.state === 'approved') data.state = 'draft';
-      const erNote = en.filter(k => platforms[k].erSource === 'manual' && (inf.platforms[k] || {}).er !== platforms[k].er).map(k => PLATFORMS[k].label + ' ER set to ' + fmtPct(platforms[k].er) + ' by hand').join(', ');
-      ok = await act(async () => { await dbx.update('influencers', inf.id, data); logEvent('influencer.edit', { pid: pr.partnershipId, prid: pr.id, ref: inf.id, refName: data.name, text: 'Edited creator ' + data.name + (erNote ? ' (' + erNote + ')' : '') + (inf.state === 'approved' ? ' (sent back for approval)' : ''), scope: undefined }); }, 'Influencer updated');
+      // Send only the fields changed in this form; the server merges them into the latest version, so a teammate's
+      // save to other fields stays. A field both of you changed is shown first and needs a second Save.
+      const mine = { name: name.trim(), tier: effTier, pl }, b = base.current, fresh = infForm(cur);
+      const changed = INF_FIELDS.map(f => f[0]).filter(key => infField(mine, key) !== infField(b, key));
+      const clash = changed.filter(key => infField(fresh, key) !== infField(b, key) && infField(fresh, key) !== infField(mine, key));
+      const clashKey = clash.map(key => key + '=' + infField(fresh, key)).join('|');
+      if (clash.length && (!conflict || conflict.key !== clashKey)) { setConflict({ key: clashKey, rows: clash.map(key => ({ key, label: INF_FIELDS.find(f => f[0] === key)[1], theirs: infShow(key, infField(fresh, key)), mine: infShow(key, infField(mine, key)) })) }); return; }
+      if (!changed.length) { closeModal(); return; }
+      const data = { updatedAt: nowIso() }; const pp = {};
+      for (const key of changed) {
+        const [a, f] = key.split('.');
+        if (!f) { data[a] = mine[a]; continue; }
+        const x = platforms[a]; pp[a] = pp[a] || {};
+        if (f === 'enabled') Object.assign(pp[a], x);
+        else if (f === 'followers') Object.assign(pp[a], { followers: x.followers, fSource: x.fSource });
+        else if (f === 'er') Object.assign(pp[a], { er: x.er, erSource: x.erSource });
+        else pp[a][f] = x[f];
+      }
+      // The hosted server merges nested fields; the artifact runtime gets whole platform entries built on the latest version.
+      if (Object.keys(pp).length) data.platforms = HOSTED ? pp : Object.fromEntries(Object.keys(PLATFORMS).map(k => [k, Object.assign({}, (cur.platforms || {})[k], pp[k])]));
+      const was = cur.state === 'approved'; if (was) data.state = 'draft';
+      const erNote = en.filter(k => changed.includes(k + '.er') && platforms[k].erSource === 'manual').map(k => PLATFORMS[k].label + ' ER set to ' + fmtPct(platforms[k].er) + ' by hand').join(', ');
+      const nm = data.name || cur.name;
+      setBusy(true);
+      ok = await act(async () => { await dbx.update('influencers', inf.id, data); logEvent('influencer.edit', { pid: pr.partnershipId, prid: pr.id, ref: inf.id, refName: nm, text: 'Edited creator ' + nm + (erNote ? ' (' + erNote + ')' : '') + (was ? ' (sent back for approval)' : ''), scope: undefined }); }, 'Influencer updated');
     } else {
+      setBusy(true);
       const id = rid();
       ok = await act(async () => { await dbx.set('influencers', id, { projectId: pr.id, partnershipId: pr.partnershipId, name: name.trim(), platforms, tier: effTier, state: 'draft', comments: {}, assignments: {}, order: Date.now(), createdAt: nowIso(), createdBy: store.me.id || null }); logEvent('influencer.add', { pid: pr.partnershipId, prid: pr.id, ref: id, refName: name.trim(), text: 'Added ' + name.trim() + ' to the masterfile' }); }, name.trim() + ' added to the masterfile');
     }
@@ -397,7 +459,8 @@ function InfluencerModal({ pr, inf }) {
   };
   return html`<${Modal} title=${inf ? 'Edit influencer' : 'Add influencer'} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${busy} onClick=${save}>${inf ? 'Save' : 'Add to masterfile'}</button><//>`}>
     ${dup ? html`<div className="banner crit" id="inf-dup"><div className="b-body small">This account is already in the masterfile: <strong>${dup.name}</strong>. <button type="button" className="btn btn-sm btn-ghost" onClick=${() => { const id = dup.id; closeModal(); setTimeout(() => { const el = document.getElementById('inf-row-' + id); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('sel'); } }, 50); }}>Show ${dup.name}</button></div></div>` : null}
-    ${inf && inf.state === 'approved' ? html`<div className="banner warn"><div className="b-body small">This creator is approved. Saving changes sends them back to the customer for approval.</div></div>` : null}
+    ${conflict ? html`<div className="banner crit" id="inf-conflict"><div className="b-body small"><div className="b-title">This creator changed while you were editing</div>Someone else saved a new value for a field you changed:<ul className="conflict-list">${conflict.rows.map(r => html`<li key=${r.key}><strong>${r.label}</strong>: saved now <span className="num">${r.theirs}</span>, yours <span className="num">${r.mine}</span></li>`)}</ul>Save again to replace it with yours, or change the field first.</div></div>` : remote.length ? html`<div className="banner info" id="inf-remote"><div className="b-body small">Someone else saved changes to this creator while you were editing (${remote.join(', ')}). Fields you have not touched now show the latest values.</div></div>` : null}
+    ${cur && cur.state === 'approved' ? html`<div className="banner warn"><div className="b-body small">This creator is approved. Saving changes sends them back to the customer for approval.</div></div>` : null}
     <label className="field"><span>Influencer name</span><input className="input" id="inf-name" value=${name} onChange=${e => setName(e.target.value)} placeholder="Full name"/></label>
     <div className="field"><span>Platforms</span><div className="opt-list">${Object.keys(PLATFORMS).map(k => html`<button key=${k} type="button" className="opt" aria-pressed=${pl[k].enabled} onClick=${() => setP(k, 'enabled', !pl[k].enabled)}>${pl[k].enabled ? html`<${Icon} n="check" s=${13}/>` : null}${PLATFORMS[k].label}</button>`)}</div></div>
     ${Object.keys(PLATFORMS).filter(k => pl[k].enabled).map(k => html`<div key=${k} className="sub-card"><div className="row"><${Plat} p=${k}/><strong className="small">${PLATFORMS[k].label}</strong></div>

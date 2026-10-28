@@ -243,6 +243,8 @@ def main():
             page.locator('button[aria-label="Edit Mert Kaya"]').click(); page.click('.modal .opt:has-text("Microinfluencer")'); btn('Save').click(); toast_wait('Influencer updated')
             page.wait_for_function('() => !document.querySelector(".tier-clash")', timeout=8000)
             check(docs('influencers')[byname['Mert Kaya'][0]]['tier'] == 'micro', 'warning clears once the type matches')
+            mk = docs('influencers')[byname['Mert Kaya'][0]]['platforms']
+            check(mk['instagram']['followers'] == 48200 and mk['instagram']['er'] == 3.4 and mk['instagram']['handle'] == 'mertkaya' and mk['tiktok']['enabled'] is False, 'PH-024: a type-only edit keeps every platform value (artifact runtime)')
             btn(re.compile('Submit for review')).click(); toast_wait('Masterfile submitted')
             check(all(v['state'] == 'pending' for v in docs('influencers').values()), 'all creators pending after submit')
 
