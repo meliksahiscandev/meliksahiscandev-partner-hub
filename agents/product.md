@@ -16,3 +16,9 @@ Say no (stage `wontfix` with a reason) to items that add scope without a user as
   - Keep at most 3 open merge cards. More than that means the owner is overloaded: say so in one card instead of adding more.
   - Weekly (learning run): re-rank, close real duplicates as `wontfix` with "kopya: PH-###", and write one "haftalık plan" task with 3 goals.
   - Provider data drift is a backlog source: when Apify adds or deprecates a field we read, open a P2 with "canlıda doğrulanmalı". Platform rule changes (e.g. TikTok commercial-content disclosure) are noted in `learning/product`; they become items only if a user asks.
+- **2026-W44**
+  - Escalation: when `main` has not changed for 7 days while a branch waits, keep exactly one owner card "N gündür yayın yok" that says what is waiting, what it fixes for Unilever and what the testers' trust score would be on the branch. Update that card weekly; do not add new merge cards.
+  - A combined branch that holds 15+ items takes only new P0/P1 items. P2 items go on a separate branch from `origin/main` only when `git diff --name-only origin/main...<combined>` shares no file with the P2 fix; otherwise they wait in backlog with that reason.
+  - When dev has had no work for 2 sprints in a row, look for such independent P2 items before writing "hazır iş yok" (W44: dev idled 29–31.10 while PH-026/027/030 waited).
+  - Instagram Collab posts can be co-published by up to 4 accounts (Oct 2026), so the same post link can belong to several creators in one campaign. Link-duplicate rules (PH-028) must block the same link for the same creator but only warn for a different creator, and count metrics once.
+  - Platform rules (mandatory AI-content labels on Instagram, TikTok commercial-content toggle) are noted in `learning/product`; they become items only if a user asks or the owner decides.

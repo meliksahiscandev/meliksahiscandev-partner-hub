@@ -72,3 +72,8 @@ Words for the owner: Sağlıklı / Dikkat / Sorunlu; Yayına alındı / Değişi
 - **sev1**: site down, sign-in broken, data visible to the wrong account, data loss → open incident + owner card immediately.
 - **sev2**: a stage of the flow broken for everyone, a provider failing for > 6 h, deploy failed.
 - **sev3**: cosmetic or a single edge case.
+
+## Learned rules (weekly learning)
+- **2026-W44**
+  - Charter rules take effect only when they reach `main`. Until the owner merges a learning branch, its rules are also written as one open `tasks/<yyyymmdd>-kurallar-<role>` item per role; every run reads open `tasks/` addressed to its role before working and follows them (W44: the W43 rules sat unmerged, so the "no daily tekrar" rule was not applied and 80 identical lines were written).
+  - Each weekly learning branch is cut from the previous unmerged learning branch, so one merge brings all of them; the older learning card is closed with "yerine: <card>".
