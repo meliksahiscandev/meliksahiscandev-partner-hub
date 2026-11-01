@@ -43,7 +43,7 @@ function dashData(s, prs, allPrs) {
     allRows.push(...infs.filter(i => i.state === 'approved' || asgList(i).length));
     fun.target += m.totalQty; fun.assigned += m.asgTotal; fun.approved += m.asgApproved; fun.live += m.asgLive; fun.data += m.asgData;
     const ps = [];
-    for (const inf of infs) for (const a of asgList(inf)) if (a.publish && a.publish.status === 'live') { const x = { pr, inf, a, m: perfOf(a) }; pieces.push(x); ps.push(x); }
+    for (const inf of infs) for (const a of asgList(inf)) if (a.publish && a.publish.status === 'live') { const x = { pr, inf, a, m: piecePerf(s, a) }; pieces.push(x); ps.push(x); }
     const withD = ps.filter(x => x.m.has);
     const views = withD.reduce((t, x) => addKnown(t, x.m.views), null), reach = withD.reduce((t, x) => addKnown(t, x.m.reach), null);
     const eng = withD.reduce((t, x) => addKnown(t, x.m.eng), null), base = withD.reduce((t, x) => t + (x.m.base || 0), 0), engB = withD.reduce((t, x) => t + (x.m.base ? x.m.eng : 0), 0);
@@ -186,7 +186,7 @@ function creatorData(s, c, all) {
     const rows = c.rows.filter(r => r.projectId === pr.id); if (!rows.length) continue;
     const o = Object.assign(zero(), { pr, p: partnerOf(s, pr.partnershipId), row: rows[0] });
     for (const r of rows) for (const a of asgList(r)) {
-      const m = perfOf(a); const isLive = !!(a.publish && a.publish.status === 'live');
+      const m = piecePerf(s, a); const isLive = !!(a.publish && a.publish.status === 'live');
       o.assigned++; tot.assigned++;
       if (reviewState(a).key === 'approved') { o.approved++; tot.approved++; }
       if (isLive) { o.live++; tot.live++; if (m.has) { add(o, m); add(tot, m); const k = a.platform + ':' + a.type; const g = byDel[k] = byDel[k] || Object.assign(zero(), { key: k, label: dLabel(a.platform, a.type), n: 0 }); g.n++; add(g, m); } }
@@ -248,7 +248,7 @@ function CreatorDashboard({ infId }) {
             <td className="small" style=${{ whiteSpace: 'nowrap' }}>${x.isLive ? fmtDate(x.date) : html`<${Badge} cls=${rs.cls}>${rs.key === 'approved' ? 'Approved · not posted' : rs.label}<//>`}</td>
             <td><div className="cs"><span className="small" style=${{ fontWeight: 500 }}>${x.pr.name}</span>${multi && x.p ? html`<span className="xs t3">${x.p.name}</span>` : null}</div></td>
             <td><${Plat} p=${x.a.platform} t=${x.a.type}/></td>
-            <td>${u ? html`<a href=${u} target="_blank" rel="noopener noreferrer" className="row nw" style=${{ gap: '4px', whiteSpace: 'nowrap' }}><${Icon} n="ext" s=${13}/>View post</a>` : html`<span className="t3">—</span>`}</td>
+            <td>${u ? html`<a href=${u} target="_blank" rel="noopener noreferrer" className="row nw" style=${{ gap: '4px', whiteSpace: 'nowrap' }}><${Icon} n="ext" s=${13}/>View post</a>` : html`<span className="t3">—</span>`}${x.m.dup ? html`<div className="xs t3 dup-note">Same post as ${x.m.dup.i.name} · counted once</div>` : null}</td>
             <td>${shot ? html`<img className="thumb" src=${'/_blob/' + pub.shot.assetId} alt=${'Screenshot ' + (pub.shot.name || '')} loading="lazy" onClick=${() => openModal('image', { src: '/_blob/' + pub.shot.assetId, name: pub.shot.name })}/>` : html`<span className="t3">—</span>`}</td>
             <td className="r num">${v('views')}</td><td className="r num">${v('reach')}</td><td className="r num">${v('likes')}</td><td className="r num">${v('comments')}</td><td className="r num">${v('shares')}</td><td className="r num">${v('saves')}</td><td className="r num">${fmtPct(x.m.er)}</td></tr>`; })
             : html`<tr><td colSpan="12" className="t3" style=${{ padding: '20px 12px' }}>No content assigned yet.</td></tr>`}

@@ -30,7 +30,7 @@ function Overview() {
   const sum = k => ms.reduce((t, m) => t + (m[k] || 0), 0);
   const items = attention(s, role);
   const creatorsApproved = prs.reduce((t, pr) => t + infsOf(s, pr.id).filter(i => i.state === 'approved').length, 0);
-  let views = 0; prs.forEach(pr => resultInfsOf(s, pr.id).forEach(i => asgList(i).forEach(a => { views += perfOf(a).views || 0; })));
+  let views = 0; prs.forEach(pr => resultInfsOf(s, pr.id).forEach(i => asgList(i).forEach(a => { views += piecePerf(s, a).views || 0; })));
   const loading = !s.loaded.partnerships || !s.loaded.projects;
   return html`<${Fragment}>
     <${PageHead} eyebrow=${role.asCustomer ? 'Customer workspace' : accountName('agency') + ' · agency workspace'} title="Overview" actions=${role.canAgency ? html`<button className="btn btn-primary" onClick=${() => openModal('newPartnership')}><${Icon} n="plus" s=${15}/>New partnership</button>` : null}/>
@@ -313,7 +313,7 @@ function AllFiles() {
   const [pid, setPid] = useState(''); const [folder, setFolder] = useState(''); const [q, setQ] = useState('');
   const files = filesFor(s, role).filter(f => (f.status === 'active' || f.status === 'failed') && (role.isAgency ? (!f.partnershipId || pids.has(f.partnershipId)) : pids.has(f.partnershipId)))
     .filter(f => !pid || (pid === '_ws' ? !f.partnershipId : f.partnershipId === pid)).filter(f => !folder || f.folder === folder)
-    .filter(f => !q.trim() || (f.name + ' ' + (f.originalName || '') + ' ' + (f.sha256 || '')).toLowerCase().includes(q.trim().toLowerCase()))
+    .filter(f => matchQ(f.name + ' ' + (f.originalName || '') + ' ' + (f.sha256 || ''), q))
     .sort(byCreated).reverse();
   const total = files.reduce((t, f) => t + (f.size || 0), 0);
   return html`<div className="stack">
@@ -391,7 +391,7 @@ function ActivityPage() {
   const { s, role } = useCtx();
   const parts = visibleParts(s, role);
   const [pid, setPid] = useState(''); const [cat, setCat] = useState(''); const [q, setQ] = useState(''); const [loading, setLoading] = useState(false);
-  const all = visibleEvents(s, role, pid ? { pid } : null).filter(e => !cat || catOf(e.act) === cat).filter(e => !q.trim() || (e.text + ' ' + personName(e.by) + ' ' + (e.refName || '')).toLowerCase().includes(q.trim().toLowerCase()));
+  const all = visibleEvents(s, role, pid ? { pid } : null).filter(e => !cat || catOf(e.act) === cat).filter(e => matchQ(e.text + ' ' + personName(e.by) + ' ' + (e.refName || ''), q));
   usePeople(all.slice(0, 300).map(e => e.by));
   const exportCsv = async () => {
     if (!CAP.downloads) return toast('Downloads are not available in this view.', 'warn');

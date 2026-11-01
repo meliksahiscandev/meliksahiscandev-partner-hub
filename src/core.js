@@ -87,6 +87,9 @@ const dLabel = (p, t) => (PLATFORMS[p] ? PLATFORMS[p].label : p) + ' ' + (TYPE_L
 const byCreated = (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
 const plural = (n, w, ws) => n + ' ' + (n === 1 ? w : (ws || w + 's'));
 function safeUrl(u) { try { const x = new URL(String(u || '').trim()); return /^https?:$/.test(x.protocol) ? x.href : null; } catch (e) { return null; } }
+/* search: Turkish-aware folding (ı/I/İ → i, ş → s, ğ → g, ç → c, ö → o, ü → u) */
+const foldTr = v => String(v == null ? '' : v).replace(/[ıIİ]/g, 'i').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const matchQ = (hay, q) => { const t = foldTr(q).trim(); return !t || foldTr(hay).includes(t); };
 const normEmail = e => String(e || '').trim().toLowerCase();
 const validEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normEmail(e));
 function parseNum(v) {
@@ -354,6 +357,32 @@ function perfOf(a) {
   const has = [views, reach, impressions, likes, comments, shares, saves, n('er')].some(v => v !== null);
   return { views, reach, impressions, likes, comments, shares, saves, eng, base, er, has };
 }
+// Post links: one key per post, so the same post pasted twice (with '/', '?igsh=…', 'www.' or other casing) is recognised.
+function postKey(u) {
+  let x; try { x = new URL(String(u || '').trim()); } catch (e) { return ''; }
+  const host = x.hostname.toLowerCase().replace(/^(www|m)\./, '');
+  const path = x.pathname.toLowerCase().replace(/\/reels\//, '/reel/').replace(/\/+$/, '');
+  return host + path;
+}
+// Sign-in walls (instagram.com/accounts/login/?next=…) are not posts and must never be saved as one.
+const isLoginLink = u => /^(instagram\.com\/(accounts|challenge)(\/|$)|tiktok\.com\/login(\/|$))/.test(postKey(u));
+// Live pieces whose post link was already used by an earlier live piece (Instagram Collab, or a copy): their
+// numbers are the same post's numbers, so totals count them once — on the piece that was posted first.
+const DUP_MEMO = new WeakMap();
+function dupPieces(s) {
+  const infs = s.influencers || []; if (DUP_MEMO.has(infs)) return DUP_MEMO.get(infs);
+  const live = []; infs.forEach(i => asgList(i).forEach(a => { if (a.publish && a.publish.status === 'live' && postKey(a.publish.url)) live.push({ i, a, k: postKey(a.publish.url) }); }));
+  live.sort((x, y) => String(x.a.publish.at || '').localeCompare(String(y.a.publish.at || '')) || (x.a.id < y.a.id ? -1 : 1));
+  const first = {}, dup = new Map(); live.forEach(x => { if (first[x.k]) dup.set(x.a.id, first[x.k]); else first[x.k] = x; });
+  DUP_MEMO.set(infs, dup); return dup;
+}
+// perfOf for totals: a repeated post link adds nothing (its numbers already count on the first piece).
+function piecePerf(s, a) {
+  const m = perfOf(a); const d = dupPieces(s).get(a.id); if (!d) return m;
+  return Object.assign({}, m, { views: null, reach: null, impressions: null, likes: null, comments: null, shares: null, saves: null, eng: null, base: 0, er: null, dup: d });
+}
+// Other live pieces already using this post link (excluding piece `aid`).
+const postLinkUses = (s, url, aid) => { const k = postKey(url); const out = []; if (k) (s.influencers || []).forEach(i => asgList(i).forEach(a => { if (a.id !== aid && a.publish && a.publish.status === 'live' && postKey(a.publish.url) === k) out.push({ i, a }); })); return out; };
 function infState(inf) {
   if (inf.state === 'approved') return { label: 'Approved', cls: 'ok' };
   if (inf.state === 'pending') return { label: 'Awaiting customer', cls: 'warn' };

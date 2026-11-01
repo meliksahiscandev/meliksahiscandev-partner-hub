@@ -399,6 +399,18 @@ def main():
             print('    names:', names)
             check(all(re.match(r'^Unilever_Vaseline-Elidor_SummerGlow_[A-Za-z0-9._]+_(IG|TT)-(Reels|Post|Story)_\d{8}\.png$', n) for n in names), 'screenshot naming convention')
             shot('12_submission')
+            lu = sorted({a['publish']['url'] for v in docs('influencers').values() for a in v.get('assignments', {}).values() if not a.get('removed') and (a.get('publish') or {}).get('status') == 'live'})
+            page.locator('tbody button:has-text("Edit"), tbody button:has-text("Add screenshot")').first.click(); page.wait_for_selector('#pub-url')
+            seen = []
+            for u_ in lu[:2]:
+                page.fill('#pub-url', u_.upper().replace('HTTPS://WWW.', 'https://') + '?igsh=x'); page.wait_for_timeout(150)
+                seen.append(page.locator('#pub-dup').count())
+            check(any(seen), 'PH-028: a post link already used by another piece is flagged in the window (%s)' % seen)
+            btn('Cancel').click(); page.wait_for_selector('.modal', state='detached')
+            for q_ in ('YILMAZ', 'yılmaz'):
+                page.fill('#global-search', q_); page.wait_for_timeout(250)
+                check('Elif Yilmaz' in page.locator('.search-res').inner_text(), 'PH-026: search "%s" finds Elif Yilmaz' % q_)
+            page.fill('#global-search', '')
 
             # ============ 13. performance ============
             print('13. Performance data', flush=True)
@@ -611,6 +623,7 @@ def main():
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):
                 traceback.print_exc()
+                results.append((False, 'suite stopped early: ' + type(e).__name__))  # a crash must never read as "0 failed"
             try:
                 shot('zz_failure')
             except Exception:

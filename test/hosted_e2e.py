@@ -55,9 +55,10 @@ def main():
                         return r.fulfill(status=200, body=v.read_bytes(), headers={'content-type': 'application/javascript', 'access-control-allow-origin': '*'})
                 if 'fonts.googleapis.com' in url or 'fonts.gstatic.com' in url:
                     return r.fulfill(status=200, body='', headers={'content-type': 'text/css'})
-                if url.startswith(BASE):
-                    return r.continue_()
-                return r.abort()
+                try:
+                    return r.continue_() if url.startswith(BASE) else r.abort()
+                except Exception as e:  # a page-level route (PH-024 sync hold) may have handled it first
+                    if 'already handled' not in str(e): raise
             ctx.route('**/*', route)
             page = ctx.new_page()
             page.on('pageerror', lambda e: errors.append(tag + ' pageerror: ' + str(e)))
@@ -891,10 +892,72 @@ def main():
             open_edit(A); before_v = state(A)['influencers']['conc1'].get('updatedAt')
             btn(A, 'Save').click(); A.wait_for_selector('.modal', state='detached', timeout=10000); A.wait_for_timeout(400)
             check(state(A)['influencers']['conc1'].get('updatedAt') == before_v, 'PH-024: Save without changes writes nothing')
+
+            print('21. Same post link on two pieces (PH-028) and Turkish search (PH-026)', flush=True)
+            at = '2026-10-22T10:00:00.000Z'
+            okl = api(A, '/api/db/op', {'op': 'set', 'path': 'projects/linkp', 'data': {'name': 'Link Check', 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': [{'platform': 'instagram', 'type': 'reels', 'qty': 4}], 'creators': [{'tier': 'micro', 'count': 2}], 'status': 'active', 'masterfile': {'created': True, 'status': 'approved', 'round': 1, 'approvedAt': at}, 'createdAt': at}})['status'] == 200
+            def lasg(n, live=None):
+                a = {'platform': 'instagram', 'type': 'reels', 'createdAt': '2026-10-2%dT10:00:00.000Z' % n, 'review': {'status': 'approved'}}
+                if live: a['publish'] = {'status': 'live', 'url': live, 'postedDate': '2026-10-25', 'at': '2026-10-25T10:00:00.000Z'}; a['perf'] = {'views': 88000, 'likes': 4000, 'source': 'manual'}
+                return a
+            okl = okl and api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/linkpi', 'data': {'name': 'İpek Işıklı', 'partnershipId': PID, 'projectId': 'linkp', 'state': 'approved', 'order': 1, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': 'ipek.isikli', 'followers': 40000, 'er': 4}}, 'assignments': {'l1': lasg(1, 'https://www.instagram.com/reel/KIS001/'), 'l2': lasg(2)}, 'createdAt': at}})['status'] == 200
+            okl = okl and api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/linkpg', 'data': {'name': 'Ilgın Ağaoğlu', 'partnershipId': PID, 'projectId': 'linkp', 'state': 'approved', 'order': 2, 'tier': 'micro', 'platforms': {'instagram': {'enabled': True, 'handle': 'ilgin.agaoglu', 'followers': 30000, 'er': 4}}, 'assignments': {'g1': lasg(3)}, 'createdAt': at}})['status'] == 200
+            check(okl, 'project with İpek Işıklı (one live Reels, one approved) and Ilgın Ağaoğlu (one approved) seeded')
+            pub = lambda url: {'op': 'update', 'path': 'influencers/linkpi', 'data': {'assignments': {'l2': {'publish': {'status': 'live', 'url': url, 'postedDate': '2026-10-26', 'at': '2026-10-26T10:00:00.000Z'}}}}}
+            r = api(A, '/api/db/op', pub(' https://instagram.com/REEL/kis001?igsh=abc123 '))
+            check(r['status'] == 409 and 'already saved' in (r['body'] or {}).get('message', str(r['body'])), 'PH-028: server refuses the same post (other casing, no www, ?igsh=, spaces) on a second piece of the same creator (%s)' % r['status'])
+            r = api(A, '/api/db/op', pub('https://www.instagram.com/accounts/login/?next=%2Freel%2FKIS002%2F'))
+            check(r['status'] == 409, 'PH-028: server refuses an Instagram sign-in link as a post link (%s)' % r['status'])
+            check(not state(A)['influencers']['linkpi']['assignments']['l2'].get('publish'), 'PH-028: nothing was written by the refused saves')
+            nav(A, '#j.linkp.submission'); A.wait_for_selector('tr:has-text("İpek Işıklı") button:has-text("Content submitted")', timeout=12000)
+            A.locator('tr:has-text("İpek Işıklı") button:has-text("Content submitted")').click()
+            A.fill('#pub-url', 'https://www.instagram.com/reel/KIS001')
+            A.wait_for_selector('#pub-dup.crit')
+            check('İpek Işıklı' in A.locator('#pub-dup').inner_text() and A.locator('#pub-save').is_disabled(), 'PH-028: the same creator\'s second piece is blocked and the window names the piece that already uses the link')
+            shot(A, 'h21a_same_link_blocked')
+            A.fill('#pub-url', 'https://www.instagram.com/accounts/login/?next=/reel/KIS002/'); btn(A, 'Save').click(); toast(A, 'sign-in page')
+            check(A.locator('.modal').count() == 1 and not state(A)['influencers']['linkpi']['assignments']['l2'].get('publish'), 'PH-028: a sign-in link is refused in the window as "not a post link"')
+            A.fill('#pub-url', 'https://www.instagram.com/reel/sc0/')
+            A.wait_for_selector('#pub-dup.warn')
+            check('Sule Caglar' in A.locator('#pub-dup').inner_text() and ' in ' in A.locator('#pub-dup').inner_text(), 'PH-028: a link used in another project shows a warning naming the creator and project: %s' % A.locator('#pub-dup').inner_text()[:140])
+            btn(A, 'Cancel').click(); A.wait_for_selector('.modal', state='detached')
+            A.locator('tr:has-text("Ilgın Ağaoğlu") button:has-text("Content submitted")').click()
+            A.fill('#pub-url', 'https://www.instagram.com/reel/KIS001/?igsh=collab')
+            A.wait_for_selector('#pub-dup.warn')
+            check('Instagram Collab' in A.locator('#pub-dup').inner_text(), 'PH-028: another creator with the same link (Collab) sees a warning, not a block')
+            shot(A, 'h21b_collab_warning')
+            btn(A, 'Save').click(); A.wait_for_selector('#pub-save:has-text("Save anyway")')
+            check(A.locator('.modal').count() == 1 and not state(A)['influencers']['linkpg']['assignments']['g1'].get('publish'), 'PH-028: the first Save only asks; nothing written yet')
+            btn(A, 'Save anyway').click(); A.wait_for_selector('.modal', state='detached', timeout=15000); A.wait_for_timeout(400)
+            g1 = state(A)['influencers']['linkpg']['assignments']['g1']
+            check((g1.get('publish') or {}).get('status') == 'live', 'PH-028: after "Save anyway" the Collab piece is saved')
+            check(api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/linkpg', 'data': {'assignments': {'g1': {'perf': {'views': 88000, 'likes': 4000, 'source': 'manual'}}}}})['status'] == 200, 'the Collab piece gets the same 88.000 views')
+            nav(A, '#j.linkp.performance'); A.wait_for_selector('.kpi:has-text("Views")', timeout=12000); A.wait_for_timeout(400)
+            kv = A.locator('.kpi:has-text("Views") .s').first.inner_text()
+            check(kv.replace('.', '').replace(',', '') == '88000', 'PH-028: Performance counts the shared post once: Views %s (not 176.000)' % kv)
+            shot(A, 'h21c_performance_once')
+            nav(A, '#d.all'); A.wait_for_selector('tr:has-text("Ilgın Ağaoğlu")', timeout=12000)
+            rg, ri = A.locator('tr:has-text("Ilgın Ağaoğlu")').first.inner_text(), A.locator('tr:has-text("İpek Işıklı")').first.inner_text()
+            check('88' in ri and '88' not in rg, 'PH-028: Dashboards count the shared post once, on the piece posted first (İpek: %s | Ilgın: %s)' % (ri.replace('\n', ' ')[:90], rg.replace('\n', ' ')[:90]))
+            shot(A, 'h21f_dashboards_once')
+            # PH-026: Turkish letters in search
+            def search(pg, q):
+                pg.fill('#global-search', ''); pg.fill('#global-search', q); pg.wait_for_timeout(250)
+                return pg.locator('.search-res').inner_text() if pg.locator('.search-res').count() else ''
+            for q in ('ışıklı', 'IŞIKLI', 'isikli', 'ılgın', 'ağaoğlu', 'agaoglu'):
+                res_ = search(A, q)
+                check(('İpek Işıklı' in res_) if 'ik' in q or 'ık' in q or 'IK' in q else ('Ilgın Ağaoğlu' in res_), 'PH-026: agency search "%s" finds the creator' % q)
+            shot(A, 'h21d_search_turkish')
+            nav(B, '#home'); B.wait_for_selector('#global-search', timeout=12000)
+            check('Ilgın Ağaoğlu' in search(B, 'ılgın') and 'İpek Işıklı' in search(B, 'ışıklı'), 'PH-026: brand search "ılgın" and "ışıklı" find the creators')
+            shot(B, 'h21e_brand_search_turkish')
+            nav(A, '#activity'); A.wait_for_selector('#act-q', timeout=12000); A.fill('#act-q', 'AĞAOĞLU'); A.wait_for_timeout(300)
+            check('Ağaoğlu' in A.locator('main').inner_text(), 'PH-026: the activity filter uses the same Turkish matching')
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):
                 traceback.print_exc()
+                results.append((False, 'suite stopped early: ' + type(e).__name__))  # a crash must never read as "0 failed"
             for nm, pg in (('A', A), ('B', B)):
                 try: shot(pg, 'zz_failure_' + nm)
                 except Exception: pass

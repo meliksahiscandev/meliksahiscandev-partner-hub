@@ -217,7 +217,7 @@ async function fetchAllStats(pr, infs) {
 }
 
 /* ---------- masterfile import (Excel / CSV) ---------- */
-const normHead = h => String(h || '').replace(/ı/g, 'i').replace(/İ/g, 'i').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+const normHead = h => foldTr(h).replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
 function classifyHead(h) {
   const n = normHead(h);
   if (!n) return null;
@@ -645,7 +645,15 @@ function PublishModal({ p, pr, inf, a }) {
   useEffect(() => { const h = e => { const items = Array.from((e.clipboardData && e.clipboardData.items) || []); const it = items.find(x => x.kind === 'file' && /^image\//.test(x.type)); if (it) { e.preventDefault(); take(it.getAsFile()); } }; document.addEventListener('paste', h); return () => document.removeEventListener('paste', h); }, []);
   const ext = shot ? (shot.type === 'image/jpeg' ? 'jpg' : shot.type === 'image/webp' ? 'webp' : 'png') : 'png';
   const name = shotName(p, pr, inf, a, date, ext);
-  const checkUrl = () => { const u = safeUrl(url); if (!u) { toast('Paste the full post link.', 'warn'); return null; } let host = ''; try { host = new URL(u).hostname; } catch (e) { } if (!PLATFORMS[a.platform].host.test(host)) { toast('That link is not from ' + PLATFORMS[a.platform].label + '. Paste the link of the live post.', 'warn'); return null; } return u; };
+  // The same post link on another piece: blocked for this creator in this project, a confirmed warning otherwise
+  // (an Instagram Collab post shared by several creators, or the same post reused in another project).
+  const uses = postLinkUses(store, url, a.id);
+  const dupSame = uses.find(x => x.i.id === inf.id && x.i.projectId === pr.id);
+  const prName = id => (store.projects.find(x => x.id === id) || {}).name || 'another project';
+  const useText = x => x.i.name + ' · ' + dLabel(x.a.platform, x.a.type) + (x.i.projectId === pr.id ? '' : ' in ' + prName(x.i.projectId));
+  const warnKey = !dupSame && uses.length ? postKey(url) : '';
+  const [ack, setAck] = useState('');
+  const checkUrl = () => { const u = safeUrl(url); if (!u) { toast('Paste the full post link.', 'warn'); return null; } let host = ''; try { host = new URL(u).hostname; } catch (e) { } if (!PLATFORMS[a.platform].host.test(host)) { toast('That link is not from ' + PLATFORMS[a.platform].label + '. Paste the link of the live post.', 'warn'); return null; } if (isLoginLink(u)) { toast('That is a sign-in page, not a post link. Open the post and copy its link.', 'warn'); return null; } return u; };
   const capture = async () => {
     const u = checkUrl(); if (!u) return;
     setBusy('Capturing the post');
@@ -654,9 +662,9 @@ function PublishModal({ p, pr, inf, a }) {
     finally { setBusy(''); }
   };
   const save = async () => {
-    const u = safeUrl(url); if (!u) return toast('Paste the full post link.', 'warn');
-    let host = ''; try { host = new URL(u).hostname; } catch (e) { }
-    if (!PLATFORMS[a.platform].host.test(host)) return toast('That link is not from ' + PLATFORMS[a.platform].label + '. Paste the link of the live post.', 'warn');
+    const u = checkUrl(); if (!u) return;
+    if (dupSame) return toast('This post link is already saved for ' + useText(dupSame) + '. Each piece needs its own post.', 'crit');
+    if (warnKey && ack !== warnKey) { setAck(warnKey); return; }
     setBusy('Saving');
     const ok = await act(async () => {
       let shotData = pub.shot || null;
@@ -666,10 +674,12 @@ function PublishModal({ p, pr, inf, a }) {
     }, 'Content marked as submitted');
     setBusy(''); if (ok !== false) closeModal();
   };
-  return html`<${Modal} title="Content submitted" onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${!!busy || !url.trim()} onClick=${save}>${busy ? html`<${Spin}/> ${busy}` : 'Save'}</button><//>`}>
+  return html`<${Modal} title="Content submitted" onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" id="pub-save" disabled=${!!busy || !url.trim() || !!dupSame} onClick=${save}>${busy ? html`<${Spin}/> ${busy}` : warnKey && ack === warnKey ? 'Save anyway' : 'Save'}</button><//>`}>
     <p className="t2">${inf.name} · ${dLabel(a.platform, a.type)}</p>
     <div className="grid2"><label className="field"><span>${PLATFORMS[a.platform].label} post link</span><input className="input mono" id="pub-url" value=${url} onChange=${e => setUrl(e.target.value)} placeholder=${a.platform === 'tiktok' ? 'https://www.tiktok.com/@user/video/…' : 'https://www.instagram.com/reel/…'}/></label>
       <label className="field"><span>Posted on</span><input className="input" type="date" id="pub-date" value=${date} onChange=${e => setDate(e.target.value || todayStr())}/></label></div>
+    ${dupSame ? html`<div className="banner crit" id="pub-dup"><div className="b-body small">This link is already saved for ${useText(dupSame)}. Each piece needs its own post link.</div></div>`
+      : warnKey ? html`<div className="banner warn" id="pub-dup"><div className="b-body small">This post link is also saved for ${uses.map(useText).join(', ')}. If it is one shared post (an Instagram Collab), save it anyway: its numbers are counted once.</div></div>` : null}
     <div className=${'drop' + (over ? ' over' : '')} onDragOver=${e => { e.preventDefault(); setOver(true); }} onDragLeave=${() => setOver(false)} onDrop=${e => { e.preventDefault(); setOver(false); take((e.dataTransfer.files || [])[0]); }}>
       <strong className="small">Screenshot of the live post</strong>
       <span className="t3 xs">${shotsOn() ? 'Capture it from the post link automatically, or' : 'Open the post, take a screenshot and'} paste it here (Ctrl/⌘ + V), drop the image, or choose a file. It is named, checksummed and filed automatically.</span>
@@ -684,7 +694,7 @@ function PublishModal({ p, pr, inf, a }) {
 function PerformanceTab({ pr, p, infs }) {
   const { role, openModal } = useCtx();
   const [pulling, setPulling] = useState('');
-  const live = []; infs.forEach(i => asgList(i).forEach(a => { if (a.publish && a.publish.status === 'live') live.push({ i, a, m: perfOf(a) }); }));
+  const live = []; infs.forEach(i => asgList(i).forEach(a => { if (a.publish && a.publish.status === 'live') live.push({ i, a, m: piecePerf(store, a) }); }));
   if (!live.length) return html`<${Empty} title="Stage 5 · Performance data">Once content is posted, add each creator's report (Excel or insight screenshots). Claude reads the numbers into one dashboard.<//>`;
   const withData = live.filter(x => x.m.has);
   const sum = k => withData.reduce((t, x) => t + (x.m[k] || 0), 0);
@@ -737,9 +747,9 @@ function PerformanceTab({ pr, p, infs }) {
     </tbody></table></div><//>` : null}
     <${Card} title="Performance data by creator" sub=${'Upload what each creator sends: Excel exports or insight screenshots. Files are kept in ' + pr.name + ' / ' + FOLDERS.perf + '.'} flush=${true}>
       <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Influencer</th><th>Live pieces</th><th className="r">Views</th><th className="r">ER</th><th>Source</th><th className="r"></th></tr></thead><tbody>
-        ${perInf.map(({ i, live: ls }) => { const ms = ls.map(perfOf); const has = ms.filter(x => x.has).length; const v = ms.reduce((t, x) => t + (x.views || 0), 0); const b = ms.reduce((t, x) => t + (x.base || 0), 0); const e = ms.reduce((t, x) => t + (x.base ? x.eng : 0), 0); const srcs = Array.from(new Set(ls.map(a => a.perf && a.perf.source).filter(Boolean))); return html`<tr key=${i.id}>
+        ${perInf.map(({ i, live: ls }) => { const ms = ls.map(a => piecePerf(store, a)); const has = ms.filter(x => x.has).length; const v = ms.reduce((t, x) => addKnown(t, x.views), null); const b = ms.reduce((t, x) => t + (x.base || 0), 0); const e = ms.reduce((t, x) => t + (x.base ? x.eng : 0), 0); const srcs = Array.from(new Set(ls.map(a => a.perf && a.perf.source).filter(Boolean))); return html`<tr key=${i.id}>
           <td><strong>${i.name}</strong>${i.removedLive ? html` <${Badge} cls="outline">removed creator<//>` : null}</td><td><div className="row" style=${{ gap: '4px' }}>${ls.map(a => html`<${Plat} key=${a.id} p=${a.platform} t=${a.type}/>`)}</div></td>
-          <td className="r num">${has ? fmtInt(v) : '—'}</td><td className="r num">${has ? fmtPct(b ? e / b * 100 : null) : '—'}</td>
+          <td className="r num">${has && v !== null ? fmtInt(v) : '—'}</td><td className="r num">${has ? fmtPct(b ? e / b * 100 : null) : '—'}</td>
           <td>${has ? html`<${Badge} cls=${has === ls.length ? 'ok' : 'warn'}>${has}/${ls.length} · ${srcs.join(', ') || 'manual'}<//>` : html`<${Badge} cls="warn">No data<//>`}</td>
           <td className="r">${role.canAgency ? html`<button className=${'btn btn-sm' + (has ? '' : ' btn-primary')} onClick=${() => openModal('perf', { p, pr, inf: i })}>${has ? 'Update data' : 'Add performance data'}</button>` : null}</td></tr>`; })}
       </tbody></table></div><//>

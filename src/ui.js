@@ -189,13 +189,13 @@ function SearchBox() {
   const ref = useRef(null);
   useEffect(() => { const k = e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); ref.current && ref.current.focus(); setOpen(true); } }; document.addEventListener('keydown', k); return () => document.removeEventListener('keydown', k); }, []);
   const res = useMemo(() => {
-    const t = q.trim().toLowerCase(); if (t.length < 2) return [];
+    const t = foldTr(q).trim(); if (t.length < 2) return []; const has = v => foldTr(v).includes(t);
     const parts = visibleParts(s, role); const pids = new Set(parts.map(p => p.id)); const out = [];
-    parts.forEach(p => { if (p.name.toLowerCase().includes(t)) out.push({ k: 'Partnership', v: p.name, r: { view: 'partnership', id: p.id } }); msaList(p).forEach(m => brandList(m).forEach(b => { if (b.name.toLowerCase().includes(t)) out.push({ k: 'Brand', v: b.name + ' · ' + p.name, r: { view: 'partnership', id: p.id, tab: 'agreements' } }); })); });
-    s.projects.filter(pr => pids.has(pr.partnershipId) && isActive(pr)).forEach(pr => { if (pr.name.toLowerCase().includes(t)) out.push({ k: 'Project', v: pr.name, r: { view: 'project', id: pr.id } }); });
-    s.influencers.filter(i => !i.removed && pids.has(i.partnershipId)).forEach(i => { const hs = enabledPlats(i).map(k => i.platforms[k].handle || ''); if (i.name.toLowerCase().includes(t) || hs.some(h => h.toLowerCase().includes(t))) out.push({ k: 'Creator', v: i.name + (hs.length ? ' · @' + hs[0] : ''), r: { view: 'project', id: i.projectId, tab: 'masterfile' } }); });
-    filesFor(s, role).filter(f => f.status === 'active' && (role.isAgency ? true : pids.has(f.partnershipId))).forEach(f => { if (String(f.name).toLowerCase().includes(t) || String(f.sha256 || '').startsWith(t)) out.push({ k: 'File', v: f.name, r: f.partnershipId ? { view: 'partnership', id: f.partnershipId, tab: 'files' } : { view: 'files' } }); });
-    if (role.canAgency) s.invites.forEach(i => { if (i.email.includes(t)) out.push({ k: 'Member', v: i.email + ' · ' + accountName(i.accountType, i.accountId), r: i.accountType === 'agency' ? { view: 'team' } : { view: 'partnership', id: i.accountId, tab: 'members' } }); });
+    parts.forEach(p => { if (has(p.name)) out.push({ k: 'Partnership', v: p.name, r: { view: 'partnership', id: p.id } }); msaList(p).forEach(m => brandList(m).forEach(b => { if (has(b.name)) out.push({ k: 'Brand', v: b.name + ' · ' + p.name, r: { view: 'partnership', id: p.id, tab: 'agreements' } }); })); });
+    s.projects.filter(pr => pids.has(pr.partnershipId) && isActive(pr)).forEach(pr => { if (has(pr.name)) out.push({ k: 'Project', v: pr.name, r: { view: 'project', id: pr.id } }); });
+    s.influencers.filter(i => !i.removed && pids.has(i.partnershipId)).forEach(i => { const hs = enabledPlats(i).map(k => i.platforms[k].handle || ''); if (has(i.name) || hs.some(has)) out.push({ k: 'Creator', v: i.name + (hs.length ? ' · @' + hs[0] : ''), r: { view: 'project', id: i.projectId, tab: 'masterfile' } }); });
+    filesFor(s, role).filter(f => f.status === 'active' && (role.isAgency ? true : pids.has(f.partnershipId))).forEach(f => { if (has(f.name) || String(f.sha256 || '').startsWith(t)) out.push({ k: 'File', v: f.name, r: f.partnershipId ? { view: 'partnership', id: f.partnershipId, tab: 'files' } : { view: 'files' } }); });
+    if (role.canAgency) s.invites.forEach(i => { if (has(i.email)) out.push({ k: 'Member', v: i.email + ' · ' + accountName(i.accountType, i.accountId), r: i.accountType === 'agency' ? { view: 'team' } : { view: 'partnership', id: i.accountId, tab: 'members' } }); });
     return out.slice(0, 14);
   }, [q, s.partnerships, s.projects, s.influencers, s.files, s.invites, role.status, role.isCustomer, role.asCustomer]);
   const pick = r => { setQ(''); setOpen(false); go(r.r); };

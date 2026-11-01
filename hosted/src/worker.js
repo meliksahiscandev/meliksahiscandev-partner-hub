@@ -65,6 +65,24 @@ const normEmail = e => String(e || '').trim().toLowerCase();
 const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const onlyKeys = (obj, keys) => obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).every(k => keys.includes(k));
 const PATH_RE = /^[A-Za-z0-9_\-.~:@+]{1,200}(\/[A-Za-z0-9_\-.~:@+]{1,200}){1,15}$/;
+// Post links (same rules as postKey/isLoginLink in src/core.js): one key per post, sign-in pages are not posts.
+function postKey(u) {
+  let x; try { x = new URL(String(u || '').trim()); } catch (e) { return ''; }
+  return x.hostname.toLowerCase().replace(/^(www|m)\./, '') + x.pathname.toLowerCase().replace(/\/reels\//, '/reel/').replace(/\/+$/, '');
+}
+const isLoginLink = u => /^(instagram\.com\/(accounts|challenge)(\/|$)|tiktok\.com\/login(\/|$))/.test(postKey(u));
+// A creator's live pieces in one project (one influencer doc) never share a post link; a newly written link is never a sign-in page.
+function postLinkError(written, next) {
+  const as = (next && next.assignments) || {};
+  for (const [aid, w] of Object.entries((written && written.assignments) || {})) {
+    const url = w && w.publish && w.publish.url; if (!url) continue;
+    if (isLoginLink(url)) return 'That is a sign-in page, not a post link.';
+    const k = postKey(url); const a = as[aid];
+    if (!k || !a || a.removed || !a.publish || a.publish.status !== 'live') continue;
+    for (const [oid, o] of Object.entries(as)) if (oid !== aid && o && !o.removed && o.publish && o.publish.status === 'live' && postKey(o.publish.url) === k) return 'This post link is already saved for another piece of this creator.';
+  }
+  return '';
+}
 function deepMerge(a, b) {
   const out = Object.assign({}, a);
   for (const k of Object.keys(b)) {
@@ -541,6 +559,7 @@ export class Workspace extends DurableObject {
     const isAudit = b.path.startsWith('audit/');
     if (isAudit && !(acc.type === 'agency' && ['owner', 'admin'].includes(acc.role))) for (const e of Object.values(b.data.events || {})) { e.by = user.id; if (acc.type === 'customer') e.role = 'customer'; }
     const next = b.op === 'set' ? b.data : deepMerge(cur.data, b.data);
+    if (b.path.startsWith('influencers/')) { const e = postLinkError(b.data, next); if (e) return fail('invalid_argument', e, 409); }
     const size = JSON.stringify(next).length; if (size > (isAudit ? 1000 : 256) * 1024) return fail('invalid_argument', 'Document over the size limit.', 413);
     const r = this.putDoc(b.path, next);
     return json({ ok: true, version: r.version, seq: r.seq, data: this.readFilter(acc, user, b.path, next) });
