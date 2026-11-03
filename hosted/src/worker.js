@@ -56,6 +56,13 @@ const nowIso = () => new Date().toISOString();
 const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 // Storage details of an audit event (hash, container, asset, file version) are agency-internal (same keys as eventMeta in core.js).
 const AGENCY_META = ['sha256', 'container', 'assetId', 'verified'];
+// A creator reaches the customer once it was sent for review (state past draft, or a submitted round, or content
+// already assigned). A removed creator stays only while one of its pieces is live (results keep counting).
+function customerSeesCreator(d) {
+  const asg = Object.values(d.assignments || {}).filter(a => a && !a.removed);
+  if (d.removed) return asg.some(a => a.publish && a.publish.status === 'live');
+  return !!((d.state && d.state !== 'draft') || d.submittedRound || asg.length);
+}
 function customerEvent(e) {
   if (!e.meta || typeof e.meta !== 'object') return e;
   const m = Object.assign({}, e.meta); for (const k of AGENCY_META) delete m[k]; if (/^file\./.test(e.act || '')) delete m.version;
@@ -236,6 +243,8 @@ export class Workspace extends DurableObject {
     if (col === 'partnerships') { if (!A[id]) return undefined; const c = clone(data); if (c.summary && c.summary.data) c.summary.data.budget = ''; return c; }
     if (col === 'influencers') {
       if (!A[data.partnershipId]) return undefined;
+      // Creators the agency never sent for review, and removed creators without live results, stay agency-internal.
+      if (!customerSeesCreator(data)) return undefined;
       // Where a number came from (fetched or typed by the agency) is agency-internal.
       const c = clone(data);
       for (const k of Object.keys(c.platforms || {})) { const x = c.platforms[k]; if (x && typeof x === 'object') { delete x.fetched; delete x.fSource; delete x.erSource; } }

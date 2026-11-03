@@ -432,7 +432,7 @@ function projectMetrics(pr, infs) {
   if (mf.status === 'approved') mfPct = 1;
   else if (mf.created) mfPct = Math.min(0.99, approvedRows / Math.max(creatorTotal, listed.length, 1));
   const stages = [
-    { pct: mfPct, detail: mf.status === 'approved' ? 'Final approval ' + fmtDate(mf.approvedAt) : reopened ? 'Reopened · ' + plural(waiting, 'creator') + ' waiting' : mf.created ? approvedRows + ' of ' + Math.max(creatorTotal, listed.length) + ' creators approved' : 'Masterfile not created' },
+    { pct: mfPct, detail: mf.status === 'approved' ? 'Final approval ' + fmtDate(mf.approvedAt) : reopened ? (waiting ? 'Reopened · ' + plural(waiting, 'creator') + ' waiting' : 'Reopened · agency is adding creators') : mf.created ? approvedRows + ' of ' + Math.max(creatorTotal, listed.length) + ' creators approved' : 'Masterfile not created' },
     { pct: ratio('assigned'), detail: of('assigned') + ' assigned' },
     { pct: ratio('approved'), detail: of('approved') + ' previews approved' },
     { pct: ratio('live'), detail: of('live') + ' posted' },
