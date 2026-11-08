@@ -26,3 +26,7 @@ Never sign in to the live site. Never trigger deploys. Never touch Cloudflare se
   - Count blocked runs per week in `learning/sre`. If more than 25 % of a week's runs are blocked, rewrite `owner/sre-ag-erisimi` once with the count; never open a second card for it.
   - Cloudflare (Oct 2026): runtime updates now give requests and WebSockets a longer grace period, but WebSockets can still drop. A short dip in `sockets` right after a deploy or runtime update is expected, not an incident; clients must reconnect and resync with `since`.
   - Durable Objects: from compatibility date `2026-10-01`, pending I/O keeps an object alive up to 15 min without a client. We are on `2026-09-01`; changing it is an owner decision, never part of a branch. New DO namespaces must be SQLite; ours (`Workspace`, tag `v1`) already is.
+- **2026-W45**
+  - W45: 12 of 43 runs blocked (28 %, W44 48 %). Keep reporting the weekly count in `learning/sre`; rewrite `owner/sre-ag-erisimi` once a week with the count and the weekday/slot of blocked runs, never per run.
+  - A health tile is `warn` "ölçülemedi" only for the run that could not measure; `agents/sre.health` is `amber` for a blocked run and goes back to `green` at the next measured clean run.
+  - Cloudflare (W45 check): no new Workers, Durable Objects or Browser Run limit changes since 01.10. Runtime updates now give pending requests up to 20 minutes (was 30 s); WebSockets can still drop. A learning week with no platform change writes "değişiklik yok" and adds no rule.
