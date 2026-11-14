@@ -584,9 +584,11 @@ export class Workspace extends DurableObject {
     if (!/^[a-f0-9]{32}$/.test(id)) return fail('not_found', 'No such file.', 404);
     const meta = this.one('SELECT type, size FROM blob_meta WHERE id=?', id); if (!meta) return fail('not_found', 'No such file.', 404);
     const acc = this.access(user);
+    // Files of a trashed project (or trashed files) are not served to customers.
+    if (acc.type !== 'agency' && this.q("SELECT data FROM docs WHERE col='files' AND deleted=0 AND json_extract(data,'$.assetId')=?", id).every(r => this.inTrash('files', null, JSON.parse(r.data)))) return fail('not_found', 'No such file.', 404);
     if (acc.type !== 'agency') {
       const ref = this.q("SELECT data FROM docs WHERE col='files' AND deleted=0 AND json_extract(data,'$.assetId')=?", id);
-      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId] && !this.inTrash('files', d.id, d); })) return fail('not_found', 'No such file.', 404);
+      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId]; })) return fail('not_found', 'No such file.', 404);
     }
     const chunks = this.q('SELECT data FROM blobs WHERE id=? ORDER BY idx', id);
     const out = new Uint8Array(meta.size); let o = 0;
