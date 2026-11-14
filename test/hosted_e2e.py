@@ -341,6 +341,37 @@ def main():
             nav(A, '#files'); A.click('.tab:has-text("Trash")'); A.locator('tr:has-text("Unilever") button:has-text("Restore")').click(); toast(A, 'Partnership restored')
             B.wait_for_timeout(1500); B.reload(); B.wait_for_function('() => !document.querySelector(".boot")'); B.wait_for_timeout(800)
             check(B.locator('.nav-btn:has-text("Unilever")').count() == 1, 'customer access returns after restore')
+            print('14b. Trashed project is hidden from the customer', flush=True)
+            def blob_status(page, url):
+                return page.request.get(BASE + url).status  # outside the page: no console noise from the expected 404
+            st = state(B)
+            kids_inf = sorted(k for k, v in st.get('influencers', {}).items() if v.get('projectId') == PRID)
+            kids_files = {k: v for k, v in st.get('files', {}).items() if v.get('projectId') == PRID}
+            check(len(kids_inf) > 0 and len(kids_files) > 0, 'customer sees Summer Glow creators (%d) and files (%d) before the trash' % (len(kids_inf), len(kids_files)))
+            asset = next((v['assetId'] for v in kids_files.values() if v.get('assetId')), None)
+            check(asset and blob_status(B, '/_blob/' + asset) == 200, 'customer can open a Summer Glow file before the trash')
+            seq0 = api(B, '/api/db/sync?since=0')['body']['seq']
+            nav(B, '#j.' + PRID); B.wait_for_selector('h1:has-text("Summer Glow")')
+            nav(A, '#j.' + PRID); A.wait_for_selector('h1:has-text("Summer Glow")')
+            btn(A, 'Move to trash').first.click(); A.wait_for_selector('.modal:has-text("Move Summer Glow to trash")')
+            A.locator('.modal button:has-text("Move to trash")').click(); A.wait_for_selector('h1:has-text("Unilever")')
+            B.wait_for_selector('text=Project not found', timeout=10000)
+            check('Summer Glow' not in B.locator('.crumbs').inner_text() and B.locator('h1:has-text("Summer Glow")').count() == 0, 'open customer session loses the trashed project live; breadcrumb has no project name')
+            shot(B, '14b_customer_trashed_project')
+            inc = {d['path']: d for d in api(B, '/api/db/sync?since=%d' % seq0)['body']['docs']}
+            check(inc.get('projects/' + PRID, {}).get('deleted') is True and all(inc.get('influencers/' + k, {}).get('deleted') is True for k in kids_inf) and all(inc.get('files/' + k, {}).get('deleted') is True for k in kids_files), 'live sync tells the customer to drop the project, its creators and its files')
+            st = state(B)
+            check(PRID not in st.get('projects', {}) and not any(v.get('projectId') == PRID for c in ('influencers', 'files') for v in st.get(c, {}).values()), 'full customer sync has no trashed project, creators or files')
+            check(api(B, '/api/db/doc?path=projects/' + PRID)['body'].get('exists') is False and api(B, '/api/db/doc?path=influencers/' + kids_inf[0])['body'].get('exists') is False and api(B, '/api/db/doc?path=files/' + list(kids_files)[0])['body'].get('exists') is False, 'direct customer reads of the trashed project, a creator and a file: exists false')
+            check(blob_status(B, '/_blob/' + asset) == 404, 'customer cannot download a file of the trashed project')
+            ev = [e for d in api(B, '/api/db/list?col=audit')['body']['docs'] for e in d['data'].get('events', {}).values()]
+            check(not any(e.get('prid') == PRID for e in ev), 'customer activity log has no lines of the trashed project')
+            check(PRID in state(A)['projects'] and state(A)['projects'][PRID]['status'] == 'trashed', 'agency still sees the project in the trash')
+            nav(A, '#files'); A.click('.tab:has-text("Trash")'); A.locator('tr:has-text("Summer Glow") button:has-text("Restore")').click(); toast(A, 'Project restored')
+            B.wait_for_selector('h1:has-text("Summer Glow")', timeout=10000)
+            check('Summer Glow' in B.locator('.crumbs').inner_text(), 'open customer session gets the project back live after restore')
+            st = state(B)
+            check(sorted(k for k, v in st.get('influencers', {}).items() if v.get('projectId') == PRID) == kids_inf and all(k in st.get('files', {}) for k in kids_files) and blob_status(B, '/_blob/' + asset) == 200, 'after restore the customer sees the same creators and files again')
             print('15. Masterfile import and Fetch all', flush=True)
             nav(A, '#p.' + PID + '.projects'); A.wait_for_selector('h1:has-text("Unilever")')
             btn(A, 'New project').first.click(); A.fill('#pj-name', 'Import Test'); A.select_option('#pj-msa', index=1); A.click('.modal .opt:has-text("Vaseline")')

@@ -128,13 +128,33 @@ export class Workspace extends DurableObject {
   getDoc(path) { const r = this.one('SELECT data, version, deleted FROM docs WHERE path=?', path); if (!r || r.deleted) return null; return { data: JSON.parse(r.data), version: r.version }; }
   putDoc(path, data) {
     const seq = this.nextSeq(); const col = path.split('/').slice(0, -1).join('/');
-    const cur = this.one('SELECT version FROM docs WHERE path=?', path); const version = (cur ? cur.version : 0) + 1;
+    const cur = this.one('SELECT version, data, deleted FROM docs WHERE path=?', path); const version = (cur ? cur.version : 0) + 1;
+    const prev = col === 'projects' && cur && !cur.deleted ? JSON.parse(cur.data) : null;
     this.sql.exec('INSERT INTO docs(path,col,data,version,seq,deleted) VALUES(?,?,?,?,?,0) ON CONFLICT(path) DO UPDATE SET data=excluded.data, version=excluded.version, seq=excluded.seq, deleted=0', path, col, JSON.stringify(data), version, seq);
-    this.dirty = true; this.lastWrite = true;
+    this.dirty = true; this.lastWrite = true; this.trashCache = null;
     this.sql.exec("INSERT INTO meta(k,v) VALUES('lastWrite',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", nowIso());
+    // A project moving into or out of the trash changes what customers may read of its creators and files:
+    // re-stamp them (same version, new seq) so open customer sessions drop or regain them on the next sync.
+    if (col === 'projects' && (prev && prev.status === 'trashed') !== (data && data.status === 'trashed')) {
+      this.sql.exec("UPDATE docs SET seq=? WHERE col IN ('influencers','files') AND deleted=0 AND json_extract(data,'$.projectId')=?", this.nextSeq(), path.split('/').pop());
+    }
     return { version, seq };
   }
-  delDoc(path) { const seq = this.nextSeq(); this.sql.exec("UPDATE docs SET deleted=1, data='null', seq=?, version=version+1 WHERE path=?", seq, path); this.dirty = true; return { seq }; }
+  delDoc(path) { const seq = this.nextSeq(); this.sql.exec("UPDATE docs SET deleted=1, data='null', seq=?, version=version+1 WHERE path=?", seq, path); this.dirty = true; this.trashCache = null; return { seq }; }
+  // Ids of projects in the trash (cached until the next write).
+  trashedProjects() {
+    if (!this.trashCache) this.trashCache = new Set(this.q("SELECT path FROM docs WHERE col='projects' AND deleted=0 AND json_extract(data,'$.status')='trashed'").map(r => r.path.split('/').pop()));
+    return this.trashCache;
+  }
+  // The trash is agency-only: a trashed project, its creators, its files (and their text) and trashed files never reach customers.
+  inTrash(col, id, data) {
+    const T = this.trashedProjects();
+    if (col === 'projects') return data.status === 'trashed' || T.has(id);
+    if (col === 'influencers') return T.has(data.projectId);
+    if (col === 'files') return data.status === 'trashed' || T.has(data.projectId);
+    if (col === 'filetext') { const f = this.getDoc('files/' + (data.fileId || id)); return !!f && this.inTrash('files', f.data.id, f.data); }
+    return false;
+  }
   broadcast() {
     if (!this.dirty) return; this.dirty = false;
     const msg = JSON.stringify({ t: 'chg', at: Date.now() });
@@ -201,6 +221,8 @@ export class Workspace extends DurableObject {
       return c;
     }
     if (acc.type !== 'customer') return undefined;
+    if (this.inTrash(col, id, data)) return undefined;
+    if (col === 'audit') { const T = this.trashedProjects(); data = Object.assign({}, data, { events: Object.fromEntries(Object.entries(data.events || {}).filter(([, e]) => !(e && e.prid && T.has(e.prid)))) }); }
     const A = acc.accounts;
     if (col === 'partnerships') { if (!A[id]) return undefined; const c = clone(data); if (c.summary && c.summary.data) c.summary.data.budget = ''; return c; }
     if (col === 'influencers') {
@@ -564,7 +586,7 @@ export class Workspace extends DurableObject {
     const acc = this.access(user);
     if (acc.type !== 'agency') {
       const ref = this.q("SELECT data FROM docs WHERE col='files' AND deleted=0 AND json_extract(data,'$.assetId')=?", id);
-      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId]; })) return fail('not_found', 'No such file.', 404);
+      if (!ref.some(r => { const d = JSON.parse(r.data); return acc.accounts[d.partnershipId] && !this.inTrash('files', d.id, d); })) return fail('not_found', 'No such file.', 404);
     }
     const chunks = this.q('SELECT data FROM blobs WHERE id=? ORDER BY idx', id);
     const out = new Uint8Array(meta.size); let o = 0;
