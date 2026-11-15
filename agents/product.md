@@ -28,3 +28,8 @@ Say no (stage `wontfix` with a reason) to items that add scope without a user as
   - When one area gets 3+ new P2 items in a week (W45: finance input, 6 items), keep them as separate items but give them the same `deps` group and one combined acceptance line "aynı doğrulama yardımcısı", so dev fixes them in one change.
   - Update the "N gündür yayın yok" owner card every Sunday with the current day count; a card whose number is a week old misleads (W45: card said 20 days on day 25).
   - Platform notes (W45, not items): Meta requires Partnership Ads for paid creator content and AI disclosure on commercial ads; Instagram tests 90-minute horizontal "Features" videos (US). They become items only if a user asks or the owner decides.
+- **2026-W46**
+  - The "3+ new P2 in one area" rule was not applied in daily triage (W46: creator dialog PH-040, 042, 043, 047). In triage, before writing the line for a new P2, count new P2 items on the same screen in the last 7 days; at 3 or more, set the shared `deps` group and the combined acceptance line that same day.
+  - A "dalda hâlâ var" line means stage `spec` the same day; check every `review` item for such a line in triage (W46: PH-008 missed for 7 days).
+  - Dev idling while `main` is frozen and nothing is in `spec` is correct; a `no-op` sprint is not a problem to solve with new branches.
+  - Platform notes (W46, not items): in Meta Partnership Ads the brand is equally liable for the creator's product claims, so claim checks belong in brand approval; TikTok can keep a video up but exclude it from For You (Sept 2026), so views can drop without a removal. They become items only if a user asks or the owner decides.

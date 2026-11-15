@@ -30,3 +30,8 @@ Never sign in to the live site. Never trigger deploys. Never touch Cloudflare se
   - W45: 12 of 43 runs blocked (28 %, W44 48 %). Keep reporting the weekly count in `learning/sre`; rewrite `owner/sre-ag-erisimi` once a week with the count and the weekday/slot of blocked runs, never per run.
   - A health tile is `warn` "ölçülemedi" only for the run that could not measure; `agents/sre.health` is `amber` for a blocked run and goes back to `green` at the next measured clean run.
   - Cloudflare (W45 check): no new Workers, Durable Objects or Browser Run limit changes since 01.10. Runtime updates now give pending requests up to 20 minutes (was 30 s); WebSockets can still drop. A learning week with no platform change writes "değişiklik yok" and adds no rule.
+- **2026-W46**
+  - W46: 14 of 41 runs blocked (34 %, W45 28 %); 5 of the 7 nightly 23:07 runs were blocked. `owner/sre-ag-erisimi` rewritten once with these numbers.
+  - Durable Objects defer code updates by default (30.10): after a deploy an active `Workspace` object may run the old code for up to 5 min. After the owner merges, compare `/api/health.version` with the merged commit no earlier than 10 min after the `Deploy` run finished; still old after 30 min is a sev2 "deploy canlıda değil".
+  - Durable Objects calls are retried by the runtime (05.11: up to 4 retries within 10 s, not for errors thrown by our code or `.overloaded`). No code change; never add a retry loop around `Workspace` stub calls — `withRetry` stays for providers only.
+  - Workers use the new module registry and `request.signal` by default only from compatibility date `2026-11-17`; we are on `2026-09-01`, so nothing changes. Bumping the date stays an owner decision.
