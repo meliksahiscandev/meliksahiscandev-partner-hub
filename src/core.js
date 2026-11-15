@@ -444,10 +444,12 @@ function projectMetrics(pr, infs) {
   const overall = Math.min(outsideOpen > 0 ? 0.99 : 1, stages.reduce((t, x) => t + x.pct, 0) / stages.length);
   const firstOpen = stages.findIndex(x => x.pct < 1);
   let furthestIdx = -1; stages.forEach((x, i) => { if (x.pct > 0) furthestIdx = i; });
-  const asgCapped = totalQty > 0 ? capSum('assigned') : asgTotal;
+  // Counted at most up to each type's target, so totals never exceed the scope (same numbers as the stage cards).
+  const capped = f => totalQty > 0 ? capSum(f) : counts[f];
+  const asgCapped = capped('assigned');
   return {
     targets: targets.concat(Object.values(extra)), totalQty, creators, creatorTotal, stages, overall,
-    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, reopened, waiting, asgCapped, asgOver: asgTotal - asgCapped, outsideOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
+    currentIdx: firstOpen === -1 ? 4 : firstOpen, furthestIdx, reopened, waiting, asgCapped, asgOver: asgTotal - asgCapped, inScope: { assigned: asgCapped, approved: capped('approved'), live: capped('live'), data: capped('data') }, outsideOpen, asgTotal, asgApproved, asgLive, asgData, asgSubmitted, asgChanges, asgNotPosted,
     delivered: totalQty > 0 ? capSum('live') : asgLive, remaining: totalQty > 0 ? Math.max(0, totalQty - capSum('live')) : Math.max(0, asgTotal - asgLive),
     pendingRows: mf.status === 'in_review' ? listed.filter(i => i.state === 'pending').length : 0,
     changeRows: listed.filter(i => openChanges(i.comments).length > 0).length,

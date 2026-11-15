@@ -41,7 +41,7 @@ function dashData(s, prs, allPrs) {
     const active = infs.filter(i => !i.removedLive);
     const listed = active.length, approved = active.filter(i => i.state === 'approved').length;
     allRows.push(...infs.filter(i => i.state === 'approved' || asgList(i).length));
-    fun.target += m.totalQty; fun.assigned += m.asgTotal; fun.approved += m.asgApproved; fun.live += m.asgLive; fun.data += m.asgData;
+    fun.target += m.totalQty; fun.assigned += m.inScope.assigned; fun.approved += m.inScope.approved; fun.live += m.inScope.live; fun.data += m.inScope.data;
     const ps = [];
     for (const inf of infs) for (const a of asgList(inf)) if (a.publish && a.publish.status === 'live') { const x = { pr, inf, a, m: piecePerf(s, a) }; pieces.push(x); ps.push(x); }
     const withD = ps.filter(x => x.m.has);

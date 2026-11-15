@@ -449,6 +449,10 @@ def main():
                 line = page.locator('#stage-line').inner_text()
                 check(line == 'Stage 5 of 5 · Performance data under way · still open: Content × Influencer match (5 of 7 assigned)', '%s: stage line shows the furthest stage under way and the open one: %s' % (who, line))
                 shot('13b_totals_' + who)
+                nav('#d.j-tchk'); page.wait_for_selector('.funnel')
+                fa = page.locator('.fstep:has-text("to creators") .num').inner_text().replace('\n', ' ')
+                check(fa == '5 · 71%', '%s: dashboard funnel Assigned counts at most the target per type (5 · 71%%): %s' % (who, fa))
+                if who == 'can': shot('13c_funnel_can')
             # A scope that no longer holds Instagram while 6 Reels are assigned (one posted): the card is never 100%.
             page.evaluate('''() => { const d = window.__mockdb.get(); const pr = JSON.parse(JSON.stringify(d["projects/tchk"]));
                 pr.name = "Scope Gone"; pr.content = [{ platform: "tiktok", type: "post", qty: 1 }]; d["projects/tgone"] = pr;
