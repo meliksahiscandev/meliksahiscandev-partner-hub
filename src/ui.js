@@ -45,12 +45,14 @@ function Modal({ title, onClose, children, footer, wide }) {
       ${footer ? html`<div className="modal-foot">${footer}</div>` : null}
     </div></div>`;
 }
-function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, typeToConfirm }) {
-  const { closeModal } = useCtx(); const [busy, setBusy] = useState(false); const [typed, setTyped] = useState('');
-  const blocked = typeToConfirm && typed.trim() !== typeToConfirm;
+function ConfirmModal({ title, body, note, ack, confirmLabel, danger, onConfirm, typeToConfirm }) {
+  const { closeModal } = useCtx(); const [busy, setBusy] = useState(false); const [typed, setTyped] = useState(''); const [acked, setAcked] = useState(false);
+  const blocked = (typeToConfirm && typed.trim() !== typeToConfirm) || (ack && !acked);
   const go = async () => { setBusy(true); const ok = await act(onConfirm); if (ok !== false) closeModal(); else setBusy(false); };
   return html`<${Modal} title=${title} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className=${'btn ' + (danger ? 'btn-danger' : 'btn-primary')} disabled=${busy || blocked} onClick=${go}>${busy ? html`<${Spin}/> Working…` : (confirmLabel || 'Confirm')}</button><//>`}>
     <p className="t2">${body}</p>
+    ${note ? html`<div className="banner warn" id="confirm-note" role="alert"><${Icon} n="alert" s=${16}/><div className="b-body small">${note}</div></div>` : null}
+    ${ack ? html`<label className="row small" style=${{ gap: '8px', marginTop: '10px', cursor: 'pointer' }}><input type="checkbox" id="confirm-ack" checked=${acked} onChange=${e => setAcked(e.target.checked)}/><span>${ack}</span></label>` : null}
     ${typeToConfirm ? html`<label className="field"><span>Type <span className="mono">${typeToConfirm}</span> to confirm</span><input className="input" id="confirm-type" value=${typed} onChange=${e => setTyped(e.target.value)}/></label>` : null}
   <//>`;
 }

@@ -420,7 +420,8 @@ function projectMetrics(pr, infs) {
   const ratio = f => totalQty > 0 ? capSum(f) / totalQty : (asgTotal ? counts[f] / asgTotal : 0);
   const of = f => totalQty > 0 ? capSum(f) + ' of ' + totalQty : counts[f] + ' of ' + asgTotal;
   const listed = infs.filter(i => !i.removedLive);
-  const tierRow = (tier, count, extra) => ({ tier, count, listed: listed.filter(i => i.tier === tier).length, approved: listed.filter(i => i.tier === tier && i.state === 'approved').length, extra });
+  // One person listed twice (a shared handle) counts once against the creator scope.
+  const tierRow = (tier, count, extra) => ({ tier, count, listed: uniqCreators(listed.filter(i => i.tier === tier)).length, approved: uniqCreators(listed.filter(i => i.tier === tier && i.state === 'approved')).length, extra });
   const creators = (pr.creators || []).map(c => tierRow(c.tier, +c.count || 0, false));
   // With a creator scope set, creators of a type outside it are listed on their own row ("not in scope") instead of vanishing.
   if (creators.length) Object.keys(TIERS).forEach(t => { if (!creators.some(c => c.tier === t) && listed.some(i => i.tier === t)) creators.push(tierRow(t, 0, true)); });
@@ -472,6 +473,10 @@ const maxFollowers = plats => Math.max(0, ...Object.values(plats || {}).filter(x
 // A tier contradicts the follower count when it falls in the other tier's range (nano 1K–10K, micro 10K–100K).
 const tierClash = (tier, followers) => !!followers && ((tier === 'nano' && followers >= 10000) || (tier === 'micro' && followers < 10000));
 const handleKeys = plats => Object.keys(PLATFORMS).filter(k => plats && plats[k] && plats[k].enabled !== false && plats[k].handle).map(k => k + ':' + cleanHandle(plats[k].handle, k).toLowerCase());
+const uniqCreators = list => { const seen = new Set(); return list.filter(i => { const ks = handleKeys(i.platforms); if (ks.some(k => seen.has(k))) return false; ks.forEach(k => seen.add(k)); return true; }); };
+// In-scope creator types with fewer approved creators than the project asks for (from projectMetrics, duplicates counted once).
+const scopeShortfall = m => m.creators.filter(c => !c.extra && c.count > 0 && c.approved < c.count).map(c => ({ tier: c.tier, count: c.count, approved: c.approved }));
+const shortfallText = sh => sh.map(c => c.count + ' ' + TIERS[c.tier].short.toLowerCase() + ' requested, ' + c.approved + ' approved').join(' · ');
 
 /* ---------- audit log (append-only, day-sharded, with local outbox) ---------- */
 const outbox = lsGet('gm-audit-outbox', []).filter(e => e && e.id && e.at);

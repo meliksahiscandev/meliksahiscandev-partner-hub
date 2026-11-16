@@ -216,7 +216,12 @@ def main():
             btn(A, re.compile('Resubmit for review')).click(); toast(A, 'Masterfile resubmitted')
             B.wait_for_selector('text=round 2', timeout=10000)
             B.locator('tr:has-text("Mert Kaya") button:has-text("Approve")').click(); toast(B, 'Mert Kaya approved')
-            btn(B, 'Final approval').click(); B.locator('.modal button:has-text("Final approval")').click()
+            btn(B, 'Final approval').click(); B.wait_for_selector('.modal')
+            # The default project scope asks for more creators than the two listed here (PH-050): the window says so and asks for a tick.
+            if B.locator('#confirm-ack').count():
+                check('requested' in B.locator('#confirm-note').inner_text(), 'PH-050: Summer Glow is below its creator scope; the window names it (%s)' % B.locator('#confirm-note').inner_text()[:100])
+                B.check('#confirm-ack')
+            B.locator('.modal button:has-text("Final approval")').click()
             B.wait_for_selector('text=Final approval ·', timeout=10000)
             check(state(A)['projects'][PRID]['masterfile']['status'] == 'approved', 'final approval stored on the server')
 
@@ -982,6 +987,43 @@ def main():
             shot(B, 'h21e_brand_search_turkish')
             nav(A, '#activity'); A.wait_for_selector('#act-q', timeout=12000); A.fill('#act-q', 'AĞAOĞLU'); A.wait_for_timeout(300)
             check('Ağaoğlu' in A.locator('main').inner_text(), 'PH-026: the activity filter uses the same Turkish matching')
+
+            print('22. Final approval below the creator scope (PH-050)', flush=True)
+            sp = state(A)['projects'][PRID]
+            at = '2026-11-16T09:00:00.000Z'
+            def kinf(iid, prid, name, handle, tier, order):
+                return api(A, '/api/db/op', {'op': 'set', 'path': 'influencers/' + iid, 'data': {'name': name, 'partnershipId': PID, 'projectId': prid, 'state': 'approved', 'submittedRound': 1, 'order': order, 'tier': tier, 'platforms': {'instagram': {'enabled': True, 'handle': handle, 'followers': 8000 if tier == 'nano' else 40000, 'er': 4}}, 'createdAt': at}})['status'] == 200
+            def kproj(prid, name):
+                return api(A, '/api/db/op', {'op': 'set', 'path': 'projects/' + prid, 'data': {'name': name, 'partnershipId': PID, 'msaId': sp['msaId'], 'brandIds': sp['brandIds'], 'content': [{'platform': 'instagram', 'type': 'reels', 'qty': 3}], 'creators': [{'tier': 'nano', 'count': 2}, {'tier': 'micro', 'count': 1}], 'status': 'active', 'masterfile': {'created': True, 'status': 'in_review', 'round': 1, 'submittedAt': at}, 'createdAt': at}})['status'] == 200
+            # One nano creator listed twice (same handle, PH-007) must count once: Nano 1 of 2.
+            ok_ = kproj('kshort', 'Kış Bakımı Kapsam') and kinf('ks1', 'kshort', 'Nil Su', 'nil.su', 'nano', 1) and kinf('ks2', 'kshort', 'Nil Su (2)', 'NIL.SU', 'nano', 2) and kinf('ks3', 'kshort', 'Mete Han', 'mete.han', 'micro', 3)
+            check(ok_, 'project asks for 2 nano + 1 micro; 3 approved rows, one nano creator listed twice')
+            nav(B, '#j.kshort.masterfile'); B.wait_for_selector('button:has-text("Final approval")', timeout=12000)
+            btn(B, 'Final approval').click(); B.wait_for_selector('#confirm-note')
+            note_ = B.locator('#confirm-note').inner_text()
+            check('Scope: 2 nano requested, 1 approved' in note_ and 'micro' not in note_, 'PH-050: the final approval window names the gap: %s' % note_[:120])
+            fbtn = B.locator('.modal button:has-text("Final approval")')
+            check(fbtn.is_disabled(), 'PH-050: final approval needs the "scope incomplete" tick first')
+            shot(B, 'h22a_scope_short_modal')
+            B.check('#confirm-ack')
+            check(fbtn.is_enabled(), 'PH-050: after the tick the button is enabled')
+            fbtn.click(); B.wait_for_selector('text=Final approval ·', timeout=10000)
+            check(state(A)['projects']['kshort']['masterfile']['status'] == 'approved', 'PH-050: approval with the scope incomplete is stored (no server rule changed)')
+            A.wait_for_timeout(600)
+            fev = [e for d in state(A).get('audit', {}).values() for e in (d.get('events') or {}).values() if e.get('act') == 'masterfile.final_approve' and e.get('prid') == 'kshort']
+            check(fev and 'scope incomplete' in fev[0]['text'] and (fev[0].get('meta') or {}).get('scopeIncomplete') == [{'tier': 'nano', 'count': 2, 'approved': 1}], 'PH-050: the activity log records the approval with "scope incomplete": %s' % (fev[0]['text'] if fev else None))
+            nav(A, '#j.kshort.masterfile'); A.wait_for_selector('#mf-scope-short', timeout=12000)
+            check('2 nano requested, 1 approved' in A.locator('#mf-scope-short').inner_text(), 'PH-050: the agency sees the warning in the masterfile header')
+            nrow = re.sub(r'\s+', ' ', A.locator('#deliv-table tr:has-text("Nanoinfluencer")').inner_text()).strip()
+            check(A.locator('.badge:has-text("Nano 1/2")').count() == 1 and nrow.endswith(' 1') and '1 approved' in nrow, 'PH-050: the duplicate counts once in the header (Nano 1/2) and in Remaining deliverables: %s' % nrow)
+            shot(A, 'h22b_agency_scope_short')
+            check(B.locator('#mf-scope-short').count() == 0, 'PH-050: the header warning is agency-side only')
+            # Complete scope: the window is unchanged (no note, no tick).
+            ok_ = kproj('kfull', 'Kapsam Tam') and kinf('kf1', 'kfull', 'Ada Nur', 'ada.nur', 'nano', 1) and kinf('kf2', 'kfull', 'Ece Nur', 'ece.nur', 'nano', 2) and kinf('kf3', 'kfull', 'Can Er', 'can.er', 'micro', 3)
+            nav(B, '#j.kfull.masterfile'); B.wait_for_selector('button:has-text("Final approval")', timeout=12000)
+            btn(B, 'Final approval').click(); B.wait_for_selector('.modal')
+            check(ok_ and B.locator('#confirm-note').count() == 0 and B.locator('#confirm-ack').count() == 0 and B.locator('.modal button:has-text("Final approval")').is_enabled(), 'PH-050: with the scope complete the window has no note and no tick')
+            B.locator('.modal button:has-text("Cancel")').click()
         except Exception as e:
             print('ERROR', type(e).__name__, e, flush=True)
             if not isinstance(e, Fail):

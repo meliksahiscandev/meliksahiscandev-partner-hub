@@ -115,7 +115,11 @@ function MasterfileTab({ pr, p, infs, m }) {
     logEvent(isChange ? 'influencer.request_change' : 'influencer.comment', Object.assign({ ref: i.id, refName: i.name, text: (isChange ? 'Requested a change on ' : 'Replied on ') + i.name + ': “' + text.slice(0, 140) + (text.length > 140 ? '…' : '') + '”' }, ctx));
   };
   const resolve = (i, cid) => act(async () => { await dbx.update('influencers', i.id, { comments: { [cid]: { resolved: true, resolvedBy: store.me.id || null, resolvedAt: nowIso() } } }); logEvent('influencer.resolve', Object.assign({ ref: i.id, refName: i.name, text: 'Resolved a comment on ' + i.name }, ctx)); }, 'Comment resolved');
-  const finalApprove = () => openModal('confirm', { title: 'Give final approval?', body: 'All ' + plural(visible.length, 'creator') + ' are approved. Final approval locks the masterfile and starts content assignment.', confirmLabel: 'Final approval', onConfirm: async () => { await dbx.update('projects', pr.id, { masterfile: { status: 'approved', approvedAt: nowIso(), approvedBy: store.me.id || null, approvedRole: actorTag(role) } }); logEvent('masterfile.final_approve', Object.assign({ refName: pr.name, text: 'Gave final approval to the masterfile (' + plural(visible.length, 'creator') + ')' }, ctx)); } });
+  const short = scopeShortfall(m);
+  // Approving below the scope is allowed (the agency may lower it on purpose) but never by accident: it needs a tick and is logged.
+  const finalApprove = () => openModal('confirm', { title: 'Give final approval?', body: 'All ' + plural(visible.length, 'creator') + ' are approved. Final approval locks the masterfile and starts content assignment.',
+    note: short.length ? 'Scope: ' + shortfallText(short) + '. The project asks for more creators than you have approved.' : null, ack: short.length ? 'I approve with the scope incomplete' : null,
+    confirmLabel: 'Final approval', onConfirm: async () => { await dbx.update('projects', pr.id, { masterfile: { status: 'approved', approvedAt: nowIso(), approvedBy: store.me.id || null, approvedRole: actorTag(role) } }); logEvent('masterfile.final_approve', Object.assign({ refName: pr.name, text: 'Gave final approval to the masterfile (' + plural(visible.length, 'creator') + ')' + (short.length ? ' with the scope incomplete: ' + shortfallText(short) : ''), meta: short.length ? { scopeIncomplete: short } : undefined }, ctx)); } });
   const statusBadge = approved ? html`<${Badge} cls="ok">Final approval · ${fmtDate(mf.approvedAt)}<//>` : inReview ? html`<${Badge} cls="warn">In customer review · round ${mf.round}<//>` : html`<${Badge}>Draft<//>`;
   const approvedCount = infs.filter(i => i.state === 'approved').length;
   return html`<div className="stack">
@@ -131,6 +135,7 @@ function MasterfileTab({ pr, p, infs, m }) {
         ${role.asCustomer && inReview && canAct ? html`<button className="btn btn-primary" disabled=${!allApproved} onClick=${finalApprove}><${Icon} n="check" s=${15}/>Final approval</button>` : null}
       </div></div>
       ${role.asCustomer && inReview && canAct && !allApproved ? html`<p className="t3 small">${drafts ? 'The agency is still adding creators. ' : ''}Approve every creator to enable final approval. Comment on any creator you want changed.</p>` : null}
+      ${!role.asCustomer && approved && short.length ? html`<div className="banner warn" id="mf-scope-short" role="alert"><${Icon} n="alert" s=${16}/><div className="b-body small">Final approval was given with the scope incomplete (${shortfallText(short)}). Reopen for changes to add creators, or edit the scope if fewer are intended.</div></div>` : null}
       <${ViewOnlyNote} pid=${p.id}/>
       ${role.preview ? html`<p className="t3 small">Customer preview: actions here are recorded as "Agency for customer".</p>` : null}
     </div></div>
