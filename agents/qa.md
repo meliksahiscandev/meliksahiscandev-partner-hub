@@ -48,3 +48,12 @@ Stub providers mean Claude/Apify/screenshot results are fake: judge only the flo
   - `t_agency`: TikTok profiles behind the login wall (Apify 04.11) give followers but no videos; with stubs this cannot be seen — PH-049 is checked "canlıda doğrulanmalı" only.
   - `t_brand`: when a score moves (W46: güven 2→3 on 14.11, görev 4→3 on 11–13.11), the summary names the item or screen that moved it.
   - `t_brand`: when approving a preview, note in the summary whether the caption text (claims, #ad / paid-partnership disclosure) is visible before Approve. Missing caption is a question for product, not a new item.
+- **2026-W47**
+  - Evidence W47: 0 "dalda düzeltilmiş: N/M", 45 "tekrar" lines on `review` items (W46 47) and 37 on `backlog` items, Collab and caption checks never run (4th week). No new process rule; all W43–W46 rules stay valid and take effect when this branch is on `main`.
+  - `qa`: the 2×-median rule worked without being on `main` — 20–21.11 full-sync p95 1238/1255 ms vs a ~770 ms median (1.6×) was reported as "makine farkı olabilir", not as a regression. Keep it.
+  - `qa`: when `main` has not changed for 21+ days and both suites are green, the daily summary also names one check that is missing from the suites for a `review` item's acceptance criteria (W47: 8 identical "main yeşil" summaries).
+  - Tooling (W47 check, 20.11): Playwright 1.65 is still the latest release; nothing new to adapt.
+  - `t_agency`: the "one new finding per screen per day" rule held this week (new: PH-051 Files on phone only). A re-seen `backlog` item gets at most one "tekrar" line per week too (W47: 35 lines on backlog items).
+  - `t_agency`: multi-creator Collab series are a common 2026 brief pattern; the W44 Collab scenario (same link under two creators) is now the first new scenario to run, before any other.
+  - `t_brand`: industry practice (Nov 2026) treats disclosure as a binary gate in every approval lane — label present, visible, correct for the platform (Instagram paid-partnership label, TikTok branded-content toggle) — and treats more than 2 revision rounds as a weak brief. Each day note whether the brand can see the disclosure state and the round number before Approve; missing pieces go as one weekly line on PH-025.
+  - `t_brand`: W47 güven fell 3→2 on 21.11 and the summary named the items (PH-032 draft creators and PH-012 raw Excel in global search, PH-004). Keep naming them; both are fixed on the waiting branch.

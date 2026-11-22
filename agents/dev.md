@@ -30,3 +30,7 @@ Code rules: no new external services or dependencies without an owner decision c
   - A verification line "dalda hâlâ var" moves the item to `spec` in the same run (W46: PH-008 stayed in `review` for 7 days). The fix is one commit on the waiting combined branch — no new branch and no new owner card; update the `why` of the existing card with one sentence.
   - Apify TikTok (04.11): a profile behind TikTok's login wall now returns one item with `authorMeta` and a `note` ("Profile has videos, but TikTok returned none (login wall)") and no videos. `parseTiktokProfile` must then return followers with `er: null`, `sample: 0` and a reason the UI can show ("videolar alınamadı"), never ER `0` (PH-049). Instagram actors: no change since 16.10.
   - Do not wrap `Workspace` Durable Object calls in retry loops; the runtime retries them (05.11). `withRetry()` is only for provider calls.
+- **2026-W47**
+  - Evidence W47: PH-008's remaining fix and PH-050 went onto the waiting combined branch as single commits with no new branch or card; 5 no-op sprints while nothing was in `spec`. Correct; keep doing this.
+  - Before each no-op sprint ends, run `git merge-tree --write-tree origin/main <combined>` and `git merge-tree --write-tree <combined> agent/dev/20261114-cop-gizli`; both clean on 22.11. A conflict is fixed on the branch the same day.
+  - Apify (W47 check): Instagram `businessCategoryName` is now `null` instead of the text `"None"` (09.11). We do not read it; if it is ever shown, `null` → "—". TikTok actors: only a search-speed fix (11.11). No code change.

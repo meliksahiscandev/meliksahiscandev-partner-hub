@@ -33,3 +33,9 @@ Say no (stage `wontfix` with a reason) to items that add scope without a user as
   - A "dalda hâlâ var" line means stage `spec` the same day; check every `review` item for such a line in triage (W46: PH-008 missed for 7 days).
   - Dev idling while `main` is frozen and nothing is in `spec` is correct; a `no-op` sprint is not a problem to solve with new branches.
   - Platform notes (W46, not items): in Meta Partnership Ads the brand is equally liable for the creator's product claims, so claim checks belong in brand approval; TikTok can keep a video up but exclude it from For You (Sept 2026), so views can drop without a removal. They become items only if a user asks or the owner decides.
+- **2026-W47**
+  - Owner load: 10 owner cards open, the owner has pressed "Yaptım" on none since 14.10. The learning run keeps one learning card (the old one closed "yerine: <card>") and adds no other card; the sev2 Claude-key card is named first in the learning card's `why` because it is the only open incident.
+  - Weekly plan goals are agent work only (see README W47). Owner-only steps are listed in the learning card instead.
+  - PH-052 ("0 remaining" while a nano is still missing) is a numbers-trust bug on the same summary code as PH-008/PH-015, which are on the waiting branch: it gets `deps: ["PH-015"]` and is the first P2 after the merge.
+  - No duplicates found in W47 (52 items checked); PH-033's 21.11 case (Total budget cut on 390 px) is the same item, not a new one.
+  - Platform notes (W47, not items): brands increasingly split creator work into media buys vs. creative partnerships with different briefs and measures; approval best practice is risk lanes with hard review clocks and disclosure as a gate in every lane. They become items only if a user asks or the owner decides.
