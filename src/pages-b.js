@@ -238,9 +238,10 @@ function parseImportRows(table, existing) {
     const cells = table[r] || []; const v = {};
     head.forEach((h, c) => { if (h && v[h] === undefined && String(cells[c] === undefined ? '' : cells[c]).trim() !== '') v[h] = String(cells[c]).trim(); });
     if (!Object.keys(v).length) continue;
-    const plats = {}; const notes = [];
+    const plats = {}; const notes = []; const issues = [];
     for (const [k, hk, fk, ek] of [['instagram', 'ig', 'igF', 'igE'], ['tiktok', 'tt', 'ttF', 'ttE']]) {
-      const handle = v[hk] ? cleanHandle(v[hk], k).replace(/[^A-Za-z0-9._]/g, '') : '';
+      const rh = readHandle(v[hk], k); if (rh.issue) issues.push({ k, post: rh.issue === POST_LINK, text: PLATFORMS[k].short + ': ' + rh.issue });
+      const handle = rh.handle || (rh.issue ? String(v[hk]).trim().replace(/^@/, '') : '');
       if (!handle) continue;
       const f = v[fk] ? parseNum(v[fk]) : null, e = v[ek] ? parseNum(v[ek]) : null;
       if (v[fk] && f === null) notes.push(PLATFORMS[k].short + ' followers not a number');
@@ -250,7 +251,8 @@ function parseImportRows(table, existing) {
     const name = (v.name || '').trim() || (plats.instagram || plats.tiktok || {}).handle || '';
     const keys = Object.keys(plats).map(k => k + ':' + plats[k].handle.toLowerCase());
     let status = 'ok', why = '';
-    if (!keys.length) { status = 'skip'; why = 'No Instagram or TikTok username'; }
+    if (issues.length) { status = 'skip'; why = issues.some(x => x.post) ? 'Post link' : 'Invalid username'; issues.forEach(x => notes.push(x.text)); }
+    else if (!keys.length) { status = 'skip'; why = 'No Instagram or TikTok username'; }
     else if (keys.some(k => known.has(k))) { status = 'skip'; why = 'Already in this masterfile'; }
     else if (keys.some(k => seen.has(k))) { status = 'skip'; why = 'Listed twice in the file'; }
     keys.forEach(k => seen.add(k));
@@ -313,7 +315,7 @@ function ImportInfluencersModal({ pr, p }) {
       if (fetchAfter && socialOn() && created.length) fetchAllStats(pr, created);
     } catch (e) { toast(errText(e), 'crit'); setBusy(''); }
   };
-  const platCell = x => x ? html`<div className="cs"><span className="handle">@${x.handle}</span><span className="stat">${x.followers !== null ? fmtK(x.followers) + ' followers' : 'followers: fetch'}${x.er !== null ? ' · ER ' + fmtPct(x.er) : ''}</span></div>` : html`<span className="t3">—</span>`;
+  const platCell = x => x ? html`<div className="cs">${/^[A-Za-z0-9._]+$/.test(x.handle) ? html`<span className="handle">@${x.handle}</span>` : html`<span className="mono t3 xs" title=${x.handle} style=${{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>${x.handle}</span>`}<span className="stat">${x.followers !== null ? fmtK(x.followers) + ' followers' : 'followers: fetch'}${x.er !== null ? ' · ER ' + fmtPct(x.er) : ''}</span></div>` : html`<span className="t3">—</span>`;
   return html`<${Modal} title="Import influencers" wide=${true} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" id="imp-run" disabled=${!!busy || !ok.length} onClick=${run}>${busy ? html`<${Spin}/> ${busy}` : 'Import ' + plural(ok.length, 'creator')}</button><//>`}>
     <p className="t2">Upload an Excel or CSV list with one creator per row. Columns: Name, Instagram, TikTok (username or profile link) and, if you have them, followers, ER % and type (nano/micro). Leave numbers empty to fetch them.</p>
     <div className="row"><${FileButton} label=${file ? 'Choose another file' : 'Choose Excel or CSV'} cls="btn-primary btn-sm" accept=".xlsx,.csv" onFiles=${pick}/>${CAP.downloads ? html`<button className="btn btn-sm" onClick=${() => act(downloadMasterfileTemplate)}><${Icon} n="down" s=${13}/>Download template</button>` : null}${file ? html`<span className="tag"><span className="mono">${file.name}</span></span>` : null}</div>
@@ -343,7 +345,8 @@ function InfluencerModal({ pr, inf }) {
   const setP = (k, f, v) => setPl(x => Object.assign({}, x, { [k]: Object.assign({}, x[k], { [f]: v }, f === 'followers' ? { fSource: v.trim() ? 'manual' : '' } : f === 'er' ? { erSource: v.trim() ? 'manual' : '' } : {}) }));
   const useFetched = k => setPl(x => { const c = x[k], f = c.fetched || {}; return Object.assign({}, x, { [k]: Object.assign({}, c, isNum(f.followers) ? { followers: String(f.followers), fSource: 'apify' } : {}, isNum(f.er) ? { er: String(f.er), erSource: 'apify' } : {}) }); });
   const fetchOne = async k => {
-    const h = cleanHandle(pl[k].handle, k); if (!h) return toast('Enter the ' + PLATFORMS[k].label + ' username first.', 'warn');
+    const rh = readHandle(pl[k].handle, k); if (rh.issue) return toast(rh.issue, 'warn');
+    const h = rh.handle; if (!h) return toast('Enter the ' + PLATFORMS[k].label + ' username first.', 'warn');
     setFetching(f => Object.assign({}, f, { [k]: true }));
     try {
       const r = await CAP.hosted.social.profile(k, h);
@@ -381,6 +384,7 @@ function InfluencerModal({ pr, inf }) {
     }
     setBusy(false); if (ok !== false) closeModal();
   };
+  const handleWarn = k => { const w = readHandle(pl[k].handle, k).issue; return w ? html`<div className="banner warn" id=${'inf-hw-' + k} role="alert"><div className="b-body small">${w}</div></div>` : null; };
   const fetchedLine = k => {
     const x = pl[k]; const f = x.fetched; if (!f) return null;
     const differs = (isNum(f.followers) && parseNum(x.followers) !== f.followers) || (isNum(f.er) && parseNum(x.er) !== f.er);
@@ -391,10 +395,10 @@ function InfluencerModal({ pr, inf }) {
     <label className="field"><span>Influencer name</span><input className="input" id="inf-name" value=${name} onChange=${e => setName(e.target.value)} placeholder="Full name"/></label>
     <div className="field"><span>Platforms</span><div className="opt-list">${Object.keys(PLATFORMS).map(k => html`<button key=${k} type="button" className="opt" aria-pressed=${pl[k].enabled} onClick=${() => setP(k, 'enabled', !pl[k].enabled)}>${pl[k].enabled ? html`<${Icon} n="check" s=${13}/>` : null}${PLATFORMS[k].label}</button>`)}</div></div>
     ${Object.keys(PLATFORMS).filter(k => pl[k].enabled).map(k => html`<div key=${k} className="sub-card"><div className="row"><${Plat} p=${k}/><strong className="small">${PLATFORMS[k].label}</strong></div>
-      <div className="grid3"><label className="field"><span>Username</span><div className="row nw" style=${{ gap: '6px' }}><input className="input mono" id=${'inf-h-' + k} value=${pl[k].handle} onChange=${e => setP(k, 'handle', e.target.value)} onKeyDown=${e => { if (e.key === 'Enter' && social) { e.preventDefault(); fetchOne(k); } }} placeholder="@username or profile link"/>${social ? html`<button type="button" className="btn btn-sm" id=${'inf-fetch-' + k} style=${{ height: '34px' }} disabled=${!!fetching[k] || !pl[k].handle.trim()} onClick=${() => fetchOne(k)} title="Fetch followers and engagement rate">${fetching[k] ? html`<${Spin}/>` : html`<${Icon} n="refresh" s=${13}/>`}Fetch</button>` : null}</div></label>
+      <div className="grid3"><label className="field"><span>Username</span><div className="row nw" style=${{ gap: '6px' }}><input className="input mono" id=${'inf-h-' + k} value=${pl[k].handle} onChange=${e => setP(k, 'handle', e.target.value)} onKeyDown=${e => { if (e.key === 'Enter' && social) { e.preventDefault(); fetchOne(k); } }} placeholder="@username or profile link"/>${social ? html`<button type="button" className="btn btn-sm" id=${'inf-fetch-' + k} style=${{ height: '34px' }} disabled=${!!fetching[k] || !pl[k].handle.trim() || !!readHandle(pl[k].handle, k).issue} onClick=${() => fetchOne(k)} title="Fetch followers and engagement rate">${fetching[k] ? html`<${Spin}/>` : html`<${Icon} n="refresh" s=${13}/>`}Fetch</button>` : null}</div></label>
       <label className="field"><span className="row nw" style=${{ gap: '6px' }}>Followers ${statTag(pl[k], 'f')}</span><input className="input num" id=${'inf-f-' + k} inputMode="decimal" value=${pl[k].followers} onChange=${e => setP(k, 'followers', e.target.value)} placeholder="e.g. 48.2K"/></label>
       <label className="field"><span className="row nw" style=${{ gap: '6px' }}>Engagement rate % ${statTag(pl[k], 'er')}</span><input className="input num" id=${'inf-e-' + k} inputMode="decimal" value=${pl[k].er} onChange=${e => setP(k, 'er', e.target.value)} placeholder="e.g. 4.3"/></label></div>
-      ${fetchedLine(k)}</div>`)}
+      ${handleWarn(k)}${fetchedLine(k)}</div>`)}
     ${Object.keys(pl).some(k => pl[k].enabled) ? html`<p className="t3 xs">${social ? 'Fetch reads followers and the engagement rate from the public profile: average likes and comments of recent posts ÷ followers. You can type over any value; edited values are marked "manual" for the agency only, and later refreshes keep them.' : HOSTED ? 'Followers and engagement rate are entered by hand. Automatic lookup starts once the Apify token is added to the server.' : 'Followers and engagement rate are entered by hand; automatic lookup from Instagram and TikTok is not connected yet.'}</p>` : null}
     <div className="field"><span>Creator type</span><div className="opt-list">${Object.entries(TIERS).map(([k, v]) => html`<button key=${k} type="button" className="opt" aria-pressed=${effTier === k} onClick=${() => { setTouched(true); setTier(k); }}>${v.label}<span className="t3 xs">${v.range}</span></button>`)}</div>
       ${suggested ? html`<small>${suggested === 'above' ? 'Over 100K followers: outside nano and micro. Choose the tier this creator counts toward.' : 'Suggested from followers: ' + TIERS[suggested].label + '.'}</small>` : null}</div>

@@ -627,12 +627,14 @@ export class Workspace extends DurableObject {
     const er = followers && engs.length ? (engs.reduce((t, n) => t + n, 0) / engs.length) / followers * 100 : null;
     return { platform: 'tiktok', handle, followers, er: er === null ? null : Math.round(er * 100) / 100, posts: num(am.video), fullName: am.nickName || am.name || '', sample: vids.length, source: 'apify:tiktok-profile-scraper' };
   }
+  // Usernames we look up: Instagram/TikTok characters only, and never a path word of a post, reel or story link.
+  validHandle(h) { return /^[A-Za-z0-9._]{1,40}$/.test(h) && !['reel', 'reels', 'p', 'tv', 'stories', 'explore'].includes(h.toLowerCase()); }
   // Many creators in one Apify run (Fetch all): one run per platform per batch instead of one run per creator.
   async socialProfiles(req, user) {
     const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     const platform = b.platform === 'tiktok' ? 'tiktok' : 'instagram';
-    const handles = Array.from(new Set((Array.isArray(b.handles) ? b.handles : []).map(h => String(h || '').replace(/^@/, '').trim()).filter(h => /^[A-Za-z0-9._]{1,40}$/.test(h))));
+    const handles = Array.from(new Set((Array.isArray(b.handles) ? b.handles : []).map(h => String(h || '').replace(/^@/, '').trim()).filter(h => this.validHandle(h))));
     if (!handles.length) return fail('bad_request', 'No valid usernames.');
     if (handles.length > 25) return fail('bad_request', 'At most 25 usernames per request.');
     const STUB = this.env.STUB_PROVIDERS === '1';
@@ -663,7 +665,7 @@ export class Workspace extends DurableObject {
     const acc = this.access(user); if (!this.agencyEdit(acc)) return fail('not_granted', 'Agency members with edit access only.', 403);
     const b = await req.json().catch(() => ({}));
     const platform = b.platform === 'tiktok' ? 'tiktok' : 'instagram'; const handle = String(b.handle || '').replace(/^@/, '').trim();
-    if (!/^[A-Za-z0-9._]{1,40}$/.test(handle)) return fail('bad_request', 'Enter a valid username.');
+    if (!this.validHandle(handle)) return fail('bad_request', 'Enter a valid username, not a post link.');
     const STUB = this.env.STUB_PROVIDERS === '1';
     if (!STUB && !this.env.APIFY_TOKEN) return fail('not_configured', 'Add the APIFY_TOKEN secret to fetch followers automatically.', 501);
     if (!this.throttle('apify:' + user.id, 300, 60 * 60000)) return fail('rate_limited', 'Lookup limit reached for this hour.', 429);

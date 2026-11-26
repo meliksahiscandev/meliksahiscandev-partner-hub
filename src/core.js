@@ -107,12 +107,27 @@ function slug(s) {
   return String(s || '').replace(/[çÇğĞıİöÖşŞüÜ]/g, c => tr[c]).normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join('') || 'Untitled';
 }
 const handleSlug = h => String(h || '').replace(/^@/, '').replace(/[^A-Za-z0-9._]/g, '') || 'creator';
-function cleanHandle(v, platform) {
+// Path words of post, reel and story links: never a username (the server refuses them too).
+const NOT_HANDLES = ['reel', 'reels', 'p', 'tv', 'stories', 'explore'];
+const POST_LINK = 'This is a post link. Paste the profile link or the @username.';
+// Reads a username or profile link: { handle, issue }. issue says why it cannot be used; the handle is then empty,
+// so a post link or a name with letters Instagram and TikTok do not allow is never turned into another account.
+function readHandle(v, platform) {
   let s = String(v || '').trim();
-  const m = platform === 'tiktok' ? s.match(/tiktok\.com\/@([^/?#]+)/i) : s.match(/instagram\.com\/([^/?#]+)/i);
-  if (m) s = m[1];
-  return s.replace(/^@/, '').trim();
+  if (!s) return { handle: '', issue: '' };
+  if (platform === 'tiktok') {
+    if (/(^|[/.])(vm|vt)\.tiktok\.com\b/i.test(s) || /tiktok\.com\/t\//i.test(s)) return { handle: '', issue: POST_LINK };
+    const m = s.match(/tiktok\.com\/@([^/?#]+)/i); if (m) s = m[1];
+  } else {
+    const m = s.match(/instagram\.com\/stories\/([^/?#]+)/i) || s.match(/instagram\.com\/([^/?#]+)/i); if (m) s = m[1];
+  }
+  s = s.replace(/^@/, '').trim();
+  if (NOT_HANDLES.includes(s.toLowerCase())) return { handle: '', issue: POST_LINK };
+  const bad = Array.from(new Set(s.match(/[^A-Za-z0-9._]/g) || []));
+  if (bad.length) return { handle: '', issue: 'A username has only letters a–z, numbers, dots and underscores. Not allowed: ' + bad.map(c => /\s/.test(c) ? 'space' : c).join(' ') };
+  return { handle: s, issue: '' };
 }
+function cleanHandle(v, platform) { return readHandle(v, platform).handle; }
 function addDays(dateStr, days) { if (!dateStr) return ''; const d = new Date(dateStr + 'T12:00:00'); d.setDate(d.getDate() + (+days || 0)); return ymd(d); }
 function addMonths(dateStr, n) { const d = new Date(dateStr + 'T12:00:00'); const day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + n); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(day, last)); return ymd(d); }
 function sha256Js(bytes) {
