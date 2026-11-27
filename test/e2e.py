@@ -218,12 +218,18 @@ def main():
                 btn('Add to masterfile').click(); toast_wait(name + ' added')
             add_inf('Elif Yilmaz', ig='https://www.instagram.com/elif.yilmaz/', tt='@elif.tt')
             add_inf('Mert Kaya', ig='@mertkaya', followers='48,2B', er='3,4')
-            add_inf('Zeynep Ak', ig='zeynepak', followers='6200')
+            # ER is a percentage: out of range is refused in the dialog, a three-digit Turkish decimal is not a thousands separator.
+            btn('Add influencer').click(); page.fill('#inf-name', 'Zeynep Ak'); page.click('.modal .opt:has-text("Instagram")'); page.fill('#inf-h-instagram', 'zeynepak'); page.fill('#inf-f-instagram', '6200'); page.fill('#inf-e-instagram', '150')
+            btn('Add to masterfile').click(); toast_wait('must be between 0 and 100')
+            check(page.locator('.modal:has-text("Add influencer")').count() == 1 and not any(v['name'] == 'Zeynep Ak' for v in docs('influencers').values()), 'ER 150 refused in the dialog, nothing saved')
+            page.fill('#inf-e-instagram', '4,375'); btn('Add to masterfile').click(); toast_wait('Zeynep Ak added')
             infs = docs('influencers')
             byname = {v['name']: (k, v) for k, v in infs.items()}
             check(byname['Elif Yilmaz'][1]['platforms']['instagram']['handle'] == 'elif.yilmaz', 'profile URL cleaned to handle')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['followers'] == 48200 and byname['Mert Kaya'][1]['tier'] == 'micro', 'Turkish "48,2B" parsed as 48,200 and tier suggested micro')
             check(byname['Mert Kaya'][1]['platforms']['instagram']['er'] == 3.4, 'decimal comma ER parsed')
+            check(byname['Zeynep Ak'][1]['platforms']['instagram']['er'] == 4.375 and byname['Zeynep Ak'][1]['platforms']['instagram']['followers'] == 6200, "ER '4,375' stored as 4.375 (not 4375); followers unchanged")
+            check(page.locator('tr:has-text("Zeynep Ak")').first.inner_text().find('4375') == -1, 'masterfile row does not show ER 4375')
             btn(re.compile('Submit for review')).click(); toast_wait('Masterfile submitted')
             check(all(v['state'] == 'pending' for v in docs('influencers').values()), 'all creators pending after submit')
 

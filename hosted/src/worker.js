@@ -54,6 +54,14 @@ const nowIso = () => new Date().toISOString();
 const clone = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 const normEmail = e => String(e || '').trim().toLowerCase();
 const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// Only the values in this write are checked, so older stored values never block an unrelated update.
+function erValuesOk(data) {
+  for (const x of Object.values((data && data.platforms) || {})) {
+    if (!x || typeof x !== 'object' || x.er === undefined || x.er === null) continue;
+    if (typeof x.er !== 'number' || !isFinite(x.er) || x.er < 0 || x.er > 100) return false;
+  }
+  return true;
+}
 const onlyKeys = (obj, keys) => obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).every(k => keys.includes(k));
 const PATH_RE = /^[A-Za-z0-9_\-.~:@+]{1,200}(\/[A-Za-z0-9_\-.~:@+]{1,200}){1,15}$/;
 function deepMerge(a, b) {
@@ -524,6 +532,7 @@ export class Workspace extends DurableObject {
     const acc = this.access(user); const cur = this.getDoc(b.path);
     if (b.op === 'update' && !cur) return fail('invalid_argument', 'Document does not exist.', 404);
     if (!this.canWrite(acc, user, b.op, b.path, b.data, cur)) return fail('invalid_argument', 'Write refused for your role.', 403);
+    if (b.op !== 'delete' && b.path.startsWith('influencers/') && !erValuesOk(b.data)) return fail('invalid_argument', 'Engagement rate must be a number between 0 and 100.', 400);
     if (b.op === 'delete') { if (cur) this.delDoc(b.path); return json({ ok: true }); }
     const isAudit = b.path.startsWith('audit/');
     if (isAudit && !(acc.type === 'agency' && ['owner', 'admin'].includes(acc.role))) for (const e of Object.values(b.data.events || {})) { e.by = user.id; if (acc.type === 'customer') e.role = 'customer'; }

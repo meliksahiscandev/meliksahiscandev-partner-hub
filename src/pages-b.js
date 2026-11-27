@@ -168,7 +168,7 @@ async function refreshCreatorStats(infs, onProgress) {
     const cur = i.platforms[k];
     const x = { fetched: { followers: r.followers, er: r.er, at: nowIso(), sample: r.sample || 0, source: r.source || 'apify' } };
     if (cur.fSource !== 'manual' && isNum(r.followers)) { x.followers = r.followers; x.fSource = 'apify'; }
-    if (cur.erSource !== 'manual' && isNum(r.er)) { x.er = r.er; x.erSource = 'apify'; }
+    if (cur.erSource !== 'manual' && isNum(r.er) && erInRange(r.er)) { x.er = r.er; x.erSource = 'apify'; }
     if (cur.fSource === 'manual' || cur.erSource === 'manual') res.keptManual++;
     (byInf[i.id] = byInf[i.id] || { i, upd: {} }).upd[k] = x; res.updated++;
   };
@@ -242,10 +242,10 @@ function parseImportRows(table, existing) {
     for (const [k, hk, fk, ek] of [['instagram', 'ig', 'igF', 'igE'], ['tiktok', 'tt', 'ttF', 'ttE']]) {
       const handle = v[hk] ? cleanHandle(v[hk], k).replace(/[^A-Za-z0-9._]/g, '') : '';
       if (!handle) continue;
-      const f = v[fk] ? parseNum(v[fk]) : null, e = v[ek] ? parseNum(v[ek]) : null;
+      const f = v[fk] ? parseNum(v[fk]) : null, e = v[ek] ? parseER(v[ek]) : null;
       if (v[fk] && f === null) notes.push(PLATFORMS[k].short + ' followers not a number');
       if (v[ek] && e === null) notes.push(PLATFORMS[k].short + ' ER not a number');
-      plats[k] = { handle, followers: f, er: e };
+      plats[k] = { handle, followers: f, er: erInRange(e) ? e : null, erBad: !erInRange(e) };
     }
     const name = (v.name || '').trim() || (plats.instagram || plats.tiktok || {}).handle || '';
     const keys = Object.keys(plats).map(k => k + ':' + plats[k].handle.toLowerCase());
@@ -253,6 +253,7 @@ function parseImportRows(table, existing) {
     if (!keys.length) { status = 'skip'; why = 'No Instagram or TikTok username'; }
     else if (keys.some(k => known.has(k))) { status = 'skip'; why = 'Already in this masterfile'; }
     else if (keys.some(k => seen.has(k))) { status = 'skip'; why = 'Listed twice in the file'; }
+    else if (Object.values(plats).some(x => x.erBad)) { status = 'skip'; why = 'ER must be between 0 and 100'; }
     keys.forEach(k => seen.add(k));
     const maxF = Math.max(0, ...Object.values(plats).map(x => x.followers || 0));
     const tier = parseTier(v.tier) || (maxF ? (maxF < 10000 ? 'nano' : 'micro') : '');
@@ -351,7 +352,7 @@ function InfluencerModal({ pr, inf }) {
       setPl(x => {
         const c = x[k]; const n = Object.assign({}, c, { handle: h, fetched: { followers: r.followers, er: r.er, at: nowIso(), sample: r.sample || 0, source: r.source || 'apify' } });
         if (c.fSource !== 'manual' || !c.followers.trim()) { if (isNum(r.followers)) { n.followers = String(r.followers); n.fSource = 'apify'; } } else kept = true;
-        if (c.erSource !== 'manual' || !c.er.trim()) { if (isNum(r.er)) { n.er = String(r.er); n.erSource = 'apify'; } } else kept = true;
+        if (c.erSource !== 'manual' || !c.er.trim()) { if (isNum(r.er) && erInRange(r.er)) { n.er = String(r.er); n.erSource = 'apify'; } } else kept = true;
         return Object.assign({}, x, { [k]: n });
       });
       if (!name.trim() && r.fullName) setName(r.fullName);
@@ -366,9 +367,9 @@ function InfluencerModal({ pr, inf }) {
     if (!name.trim()) return toast('Enter the influencer name.', 'warn');
     const en = Object.keys(pl).filter(k => pl[k].enabled);
     if (!en.length) return toast('Select at least one platform.', 'warn');
-    for (const k of en) { if (!cleanHandle(pl[k].handle, k)) return toast('Enter the ' + PLATFORMS[k].label + ' username.', 'warn'); if (pl[k].followers.trim() && parseNum(pl[k].followers) === null) return toast('Followers on ' + PLATFORMS[k].label + ' is not a number.', 'warn'); if (pl[k].er.trim() && parseNum(pl[k].er) === null) return toast('Engagement rate on ' + PLATFORMS[k].label + ' is not a number.', 'warn'); }
+    for (const k of en) { if (!cleanHandle(pl[k].handle, k)) return toast('Enter the ' + PLATFORMS[k].label + ' username.', 'warn'); if (pl[k].followers.trim() && parseNum(pl[k].followers) === null) return toast('Followers on ' + PLATFORMS[k].label + ' is not a number.', 'warn'); if (pl[k].er.trim() && parseER(pl[k].er) === null) return toast('Engagement rate on ' + PLATFORMS[k].label + ' is not a number.', 'warn'); if (!erInRange(parseER(pl[k].er))) return toast('Engagement rate on ' + PLATFORMS[k].label + ' must be between 0 and 100.', 'warn'); }
     if (!effTier) return toast('Choose nano or micro.', 'warn');
-    const platforms = {}; Object.keys(PLATFORMS).forEach(k => { const x = pl[k]; const f = x.enabled ? parseNum(x.followers) : null, e = x.enabled ? parseNum(x.er) : null; platforms[k] = { enabled: !!x.enabled, handle: x.enabled ? cleanHandle(x.handle, k) : '', followers: f, er: e, fSource: f === null ? null : (x.fSource || 'manual'), erSource: e === null ? null : (x.erSource || 'manual'), fetched: x.enabled ? x.fetched || null : null }; });
+    const platforms = {}; Object.keys(PLATFORMS).forEach(k => { const x = pl[k]; const f = x.enabled ? parseNum(x.followers) : null, e = x.enabled ? parseER(x.er) : null; platforms[k] = { enabled: !!x.enabled, handle: x.enabled ? cleanHandle(x.handle, k) : '', followers: f, er: e, fSource: f === null ? null : (x.fSource || 'manual'), erSource: e === null ? null : (x.erSource || 'manual'), fetched: x.enabled ? x.fetched || null : null }; });
     setBusy(true);
     let ok;
     if (inf) {
@@ -383,7 +384,7 @@ function InfluencerModal({ pr, inf }) {
   };
   const fetchedLine = k => {
     const x = pl[k]; const f = x.fetched; if (!f) return null;
-    const differs = (isNum(f.followers) && parseNum(x.followers) !== f.followers) || (isNum(f.er) && parseNum(x.er) !== f.er);
+    const differs = (isNum(f.followers) && parseNum(x.followers) !== f.followers) || (isNum(f.er) && parseER(x.er) !== f.er);
     return html`<div className="row small" style=${{ gap: '8px' }}><span className="t3">Fetched ${fmtAgo(f.at)}: <span className="num">${fmtInt(f.followers)}</span> followers · ER <span className="num">${fmtPct(f.er)}</span>${f.sample ? ' from the last ' + f.sample + ' posts' : ''}</span>${differs ? html`<button type="button" className="btn btn-sm btn-ghost" onClick=${() => useFetched(k)}>Use fetched values</button>` : null}</div>`;
   };
   return html`<${Modal} title=${inf ? 'Edit influencer' : 'Add influencer'} onClose=${closeModal} footer=${html`<${Fragment}><button className="btn" onClick=${closeModal}>Cancel</button><button className="btn btn-primary" disabled=${busy} onClick=${save}>${inf ? 'Save' : 'Add to masterfile'}</button><//>`}>

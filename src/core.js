@@ -102,6 +102,15 @@ function parseNum(v) {
   else if (lastDot > -1) { const parts = body.split('.'); if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && mult === 1)) body = body.replace(/\./g, ''); }
   const n = parseFloat(body); return isFinite(n) ? n * mult : null;
 }
+// Engagement rate is a percentage: a comma or a dot is always the decimal mark ('4,375' = 4.375), never a thousands separator.
+function parseER(v) {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  const s = String(v).trim().replace(/\s/g, '').replace(/^%|%$/g, '').replace(',', '.');
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+  const n = parseFloat(s); return isFinite(n) ? n : null;
+}
+const erInRange = n => n === null || (n >= 0 && n <= 100);
 function slug(s) {
   const tr = { 'ç': 'c', 'Ç': 'C', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I', 'ö': 'o', 'Ö': 'O', 'ş': 's', 'Ş': 'S', 'ü': 'u', 'Ü': 'U' };
   return String(s || '').replace(/[çÇğĞıİöÖşŞüÜ]/g, c => tr[c]).normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join('') || 'Untitled';

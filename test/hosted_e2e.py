@@ -29,6 +29,11 @@ def check(cond, label):
 def make_fixtures():
     from PIL import Image, ImageDraw
     im = Image.new('RGB', (900, 1400), (245, 240, 230)); d = ImageDraw.Draw(im); d.text((40, 40), 'Moodboard: glow, summer, beach', fill=(20, 20, 20)); im.save(FIX / 'moodboard.png')
+    import openpyxl
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(['Name', 'Instagram', 'Instagram followers', 'Instagram ER %'])
+    ws.append(['Er Ondalik', '@er.ondalik', '48.200', '4,375']); ws.append(['Er Buyuk', '@er.buyuk', '9000', '150']); ws.append(['Er Eksi', '@er.eksi', '9000', '-2'])
+    wb.save(FIX / 'creators_er.xlsx')
 
 def main():
     make_fixtures()
@@ -364,6 +369,23 @@ def main():
             check(any(v['folder'] == 'Masterfile Imports' and v['verified'] for v in st['files'].values()), 'imported file stored and verified in Masterfile Imports')
             A.click('#mf-refresh'); toast(A, 'Stats updated for 4 profiles', 30000)
             check(True, 'Fetch all runs through every creator in the masterfile')
+            # ER range: the import preview does not mark out-of-range ER as ready; the server refuses it.
+            A.click('#mf-import'); A.wait_for_selector('.modal:has-text("Import influencers")')
+            A.locator('.modal button:has-text("Choose Excel or CSV") + input[type=file]').set_input_files(str(FIX / 'creators_er.xlsx'))
+            A.wait_for_selector('#imp-table')
+            check(A.locator('#imp-table tr:has-text("Er Ondalik") .badge:has-text("Ready")').count() == 1 and '4.38%' in A.locator('#imp-table tr:has-text("Er Ondalik")').inner_text() and '4375' not in A.locator('#imp-table tr:has-text("Er Ondalik")').inner_text(), "import preview: ER '4,375' row ready, not read as 4375")
+            check(A.locator('#imp-table tr:has-text("Er Buyuk") .badge:has-text("between 0 and 100")').count() == 1 and A.locator('#imp-table tr:has-text("Er Eksi") .badge:has-text("between 0 and 100")').count() == 1, 'import preview: ER 150 and -2 rows not ready (ER must be between 0 and 100)')
+            A.keyboard.press('Escape'); A.wait_for_timeout(300)
+            if A.locator('.modal:has-text("Import influencers")').count(): A.locator('.modal button:has-text("Cancel")').first.click()
+            ada_id = [k for k, v in st['influencers'].items() if v['name'] == 'Ada Kaya'][0]
+            r = api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/' + ada_id, 'data': {'platforms': {'instagram': {'er': 150}}}})
+            check(r['status'] == 400, 'server refuses ER 150 (got %s)' % r['status'])
+            r = api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/' + ada_id, 'data': {'platforms': {'instagram': {'er': -2}}}})
+            check(r['status'] == 400, 'server refuses ER -2 (got %s)' % r['status'])
+            r = api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/' + ada_id, 'data': {'platforms': {'instagram': {'er': 4.375}}}})
+            check(r['status'] == 200 and state(A)['influencers'][ada_id]['platforms']['instagram']['er'] == 4.375, 'server accepts ER 4.375')
+            r = api(A, '/api/db/op', {'op': 'update', 'path': 'influencers/' + ada_id, 'data': {'platforms': {'instagram': {'er': 4.2}}}})
+            check(r['status'] == 200, 'ER restored to the value from the file')
             shot(A, 'h15_import')
             print('16. Admin and member access (agency and brand)', flush=True)
             IPR = [k for k, v in st['projects'].items() if v['name'] == 'Import Test'][0]
